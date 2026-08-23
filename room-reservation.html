@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>강의실 예약 | 국제교육원</title>
+<link rel="stylesheet" as="style" crossorigin
+  href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --primary:#0075de; --primary-active:#005bab; --secondary:#213183; --on-primary:#fff;
+    --accent-sky:#62aef0; --accent-teal:#2a9d99; --accent-green:#1aae39; --accent-orange:#dd5b00;
+    --canvas:#fff; --canvas-soft:#f6f5f4; --hairline:#e6e6e6;
+    --ink:#000; --ink-secondary:#31302e; --ink-muted:#615d59; --ink-faint:#a39e98;
+    --r-xs:4px; --r-sm:5px; --r-md:8px; --r-lg:12px; --r-full:9999px;
+    --shadow-1:0 0.175px 1.041px rgba(0,0,0,.01),0 0.8px 2.925px rgba(0,0,0,.02),0 2.025px 7.847px rgba(0,0,0,.027),0 4px 18px rgba(0,0,0,.04);
+    --shadow-2:0 0.3px 1.5px rgba(0,0,0,.015),0 1.2px 4.5px rgba(0,0,0,.025),0 3.2px 11px rgba(0,0,0,.035),0 8px 24px rgba(0,0,0,.045),0 23px 52px rgba(0,0,0,.05);
+    --slot-w:56px; --row-h:52px; --label-w:150px;
+  }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  body{
+    font-family:'Pretendard',-apple-system,system-ui,"Segoe UI",Helvetica,Arial,sans-serif;
+    background:var(--canvas-soft); color:var(--ink); -webkit-font-smoothing:antialiased; line-height:1.5;
+  }
+  a{ color:inherit; }
+  button{ font-family:inherit; cursor:pointer; border:none; background:none; }
+  input,select,textarea{ font-family:inherit; }
+  :focus-visible{ outline:2px solid var(--primary); outline-offset:2px; }
+
+  .wrap{ max-width:1500px; margin:0 auto; padding:24px 24px 60px; }
+
+  /* ===== Topbar ===== */
+  .topbar{
+    background:#fff; border:1px solid var(--hairline); border-radius:var(--r-lg);
+    padding:14px 20px; display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+    margin-bottom:16px; box-shadow:var(--shadow-1);
+  }
+  .brand{ display:flex; align-items:center; gap:10px; font-weight:800; font-size:18px; letter-spacing:-.3px; }
+  .brand .mark{ width:30px; height:30px; border-radius:var(--r-md); background:var(--secondary); color:#fff; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:800; }
+  .brand small{ display:block; font-weight:500; color:var(--ink-faint); font-size:11px; }
+
+  .date-nav{ display:flex; align-items:center; gap:6px; }
+  .date-nav button{
+    height:34px; padding:0 12px; border-radius:var(--r-md); border:1px solid var(--hairline); background:#fff;
+    font-size:13px; font-weight:600; color:var(--ink-secondary);
+  }
+  .date-nav button:hover{ background:var(--canvas-soft); }
+  .date-nav .today-btn{ color:var(--primary); border-color:#cfe3fa; }
+  .date-nav .d-label{ font-size:15px; font-weight:700; min-width:150px; text-align:center; }
+  .date-nav input[type=date]{
+    height:34px; border:1px solid var(--hairline); border-radius:var(--r-md); padding:0 8px; font-size:13px; color:var(--ink-secondary);
+  }
+
+  .my-name{ display:flex; align-items:center; gap:8px; margin-left:auto; }
+  .my-name label{ font-size:12.5px; color:var(--ink-muted); font-weight:600; }
+  .my-name input{
+    height:34px; border:1px solid var(--hairline); border-radius:var(--r-md); padding:0 10px; font-size:13px; width:150px;
+  }
+
+  /* ===== Instruction + filters ===== */
+  .hint-row{ display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:14px; }
+  .hint{ font-size:13px; color:var(--ink-muted); }
+  .config-banner{
+    background:#fff7e6; border:1px solid #f3d9a3; border-radius:var(--r-lg);
+    padding:12px 16px; margin-bottom:14px; font-size:12.5px; color:#7a5a10; display:none;
+  }
+  .config-banner code{ background:#fff; border:1px solid #f0dcae; border-radius:4px; padding:1px 5px; }
+
+  .filters{ display:flex; gap:16px; flex-wrap:wrap; }
+  .filter-chk{ display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--ink-secondary); cursor:pointer; user-select:none; }
+  .filter-chk input{ width:14px; height:14px; accent-color:var(--primary); }
+
+  .legend{ display:flex; gap:14px; flex-wrap:wrap; margin-bottom:10px; }
+  .legend-item{ display:flex; align-items:center; gap:6px; font-size:12px; color:var(--ink-muted); }
+  .legend-swatch{ width:12px; height:12px; border-radius:4px; }
+
+  /* ===== Grid ===== */
+  .grid-panel{
+    background:#fff; border:1px solid var(--hairline); border-radius:var(--r-lg);
+    overflow:auto; box-shadow:var(--shadow-1); position:relative;
+  }
+  table.tl{ border-collapse:collapse; }
+  table.tl thead th{
+    position:sticky; top:0; background:#fff; z-index:5;
+    font-size:11px; font-weight:600; color:var(--ink-faint); text-align:left;
+    padding:8px 6px; border-bottom:1px solid var(--hairline); white-space:nowrap;
+  }
+  table.tl thead th.room-col{
+    position:sticky; left:0; top:0; z-index:6; width:var(--label-w); min-width:var(--label-w); background:#fff;
+    border-right:1px solid var(--hairline);
+  }
+  table.tl thead th.slot-col{ width:var(--slot-w); min-width:var(--slot-w); text-align:center; }
+  table.tl tbody td.room-cell{
+    position:sticky; left:0; z-index:4; background:#fff; width:var(--label-w); min-width:var(--label-w);
+    padding:8px 12px; border-right:1px solid var(--hairline); border-bottom:1px solid var(--hairline); vertical-align:middle;
+  }
+  table.tl tbody td.room-cell .rn{ font-weight:700; font-size:13.5px; }
+  table.tl tbody td.room-cell .rc{ font-size:11.5px; color:var(--ink-faint); margin-top:1px; }
+  table.tl tbody tr{ height:var(--row-h); }
+  table.tl tbody td.slot{
+    border-bottom:1px solid var(--hairline); border-right:1px solid #f0efed; padding:3px;
+    vertical-align:middle;
+  }
+  .cell-inner{
+    height:100%; min-height:40px; border-radius:var(--r-sm);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center;
+    font-size:11px; font-weight:600; line-height:1.25; padding:2px 4px; overflow:hidden;
+  }
+  .cell-inner.free{
+    background:#fff; border:1px dashed #d8e8fc; color:#bcd4f2; cursor:pointer; transition:background .12s, border-color .12s;
+  }
+  .cell-inner.free:hover{ background:#eef6ff; border-color:var(--primary); color:var(--primary); }
+  .cell-inner.free.past{ border-color:#eee; color:#e2e2e2; cursor:default; }
+  .cell-inner.free.past:hover{ background:#fff; color:#e2e2e2; }
+  .cell-inner.fixed{ background:#efeeec; color:var(--ink-muted); }
+  .cell-inner.fixed .sub{ font-weight:400; font-size:9.5px; color:var(--ink-faint); }
+  .cell-inner.blocked{ background:#e3e3e3; color:#8a8a8a; }
+  .cell-inner.booking{ cursor:pointer; color:#fff; background:var(--accent-teal); }
+  .cell-inner.booking.mine{ background:var(--primary); box-shadow:0 0 0 2px #cfe3fa inset; }
+  .cell-inner.booking .sub{ font-weight:400; font-size:9.5px; opacity:.85; }
+  .cell-inner.dim{ opacity:.35; }
+
+  .now-line{ position:absolute; top:33px; bottom:0; width:2px; background:#ff4d4f; z-index:3; pointer-events:none; }
+  .now-dot{ position:absolute; top:29px; width:8px; height:8px; border-radius:50%; background:#ff4d4f; z-index:3; transform:translateX(-3px); pointer-events:none; }
+
+  /* ===== Modal ===== */
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(20,20,20,.4); z-index:100;
+    display:none; align-items:center; justify-content:center; padding:20px;
+  }
+  .modal-overlay.open{ display:flex; }
+  .modal-card{ background:#fff; border-radius:var(--r-lg); width:100%; max-width:420px; padding:24px; box-shadow:var(--shadow-2); max-height:88vh; overflow-y:auto; }
+  .modal-card h3{ font-size:17px; font-weight:700; margin-bottom:4px; letter-spacing:-.2px; }
+  .modal-card .msub{ font-size:12.5px; color:var(--ink-faint); margin-bottom:16px; }
+  .form-row{ margin-bottom:12px; display:flex; flex-direction:column; gap:5px; }
+  .form-row label{ font-size:12.5px; font-weight:600; color:var(--ink-secondary); }
+  .field{ width:100%; padding:9px 11px; border:1px solid #ddd; border-radius:var(--r-xs); font-size:14px; color:var(--ink); }
+  .field:focus{ outline:none; border-color:var(--primary); box-shadow:var(--shadow-1); }
+  .row-2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  textarea.field{ resize:vertical; min-height:56px; }
+  .modal-actions{ display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:16px; }
+  .btn{ display:inline-flex; align-items:center; gap:6px; font-size:13.5px; font-weight:600; padding:9px 16px; border-radius:var(--r-full); transition:transform .1s, background .15s; }
+  .btn:active{ transform:scale(.96); }
+  .btn-primary{ background:var(--primary); color:#fff; }
+  .btn-primary:hover{ background:var(--primary-active); }
+  .btn-utility{ background:#fff; color:var(--ink); border:1px solid var(--hairline); border-radius:var(--r-md); }
+  .btn-danger{ background:#fff; color:#c62828; border:1px solid #f3c9c9; border-radius:var(--r-md); }
+  .btn-danger:hover{ background:#fff5f5; }
+  .detail-row{ display:flex; gap:10px; padding:8px 0; border-bottom:1px solid var(--hairline); font-size:13.5px; }
+  .detail-row:last-child{ border-bottom:none; }
+  .detail-row .k{ width:64px; flex:none; color:var(--ink-faint); font-weight:600; font-size:12.5px; }
+
+  @media (max-width:720px){
+    .wrap{ padding:14px; }
+    .my-name{ margin-left:0; width:100%; }
+    .my-name input{ flex:1; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <div class="brand">
+      <span class="mark">국</span>
+      <div>강의실 예약<small>국제교육원 · 한국어교육센터</small></div>
+    </div>
+    <div class="date-nav">
+      <button id="prevDay" aria-label="이전 날짜">‹</button>
+      <button id="todayBtn" class="today-btn">오늘</button>
+      <button id="nextDay" aria-label="다음 날짜">›</button>
+      <span class="d-label" id="dateLabel">2026년 8월 23일 (일)</span>
+      <input type="date" id="datePicker">
+    </div>
+    <div class="my-name">
+      <label for="myNameInput">내 이름</label>
+      <input id="myNameInput" placeholder="예: 응웬민티엔">
+    </div>
+  </div>
+
+  <div class="config-banner" id="configBanner">
+    ⚠️ <b>Supabase가 아직 연결되지 않았어요.</b> 지금은 브라우저 메모리에만 저장돼서 새로고침하면 예약 내역이 초기화됩니다.
+    실제로 데이터를 남기려면 코드 상단의 <code>SUPABASE_URL</code> / <code>SUPABASE_ANON_KEY</code>를 본인 프로젝트 값으로 바꿔주세요.
+    (같이 드린 <code>supabase_schema_reservation.sql</code>을 Supabase SQL Editor에서 먼저 실행해야 해요.)
+  </div>
+
+  <div class="hint-row">
+    <div class="hint">빈 칸을 눌러 예약하고, <b>내 예약</b>(진한 파란색)을 눌러 수정·취소하세요.</div>
+    <div class="filters">
+      <label class="filter-chk"><input type="checkbox" id="fltMine"> 내 예약만 보기</label>
+      <label class="filter-chk"><input type="checkbox" id="fltOthers" checked> 다른 예약 보기</label>
+      <label class="filter-chk"><input type="checkbox" id="fltPast" checked> 지난 시간 · 예약 불가 흐리게 표시</label>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span class="legend-item"><span class="legend-swatch" style="background:#efeeec;"></span>한국어교육센터 정규수업</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#e3e3e3;"></span>사용불가</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#fff; border:1px dashed #d8e8fc;"></span>예약 가능</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:var(--accent-teal);"></span>다른 예약</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:var(--primary);"></span>내 예약</span>
+  </div>
+
+  <div class="grid-panel" id="gridPanel">
+    <table class="tl" id="tlTable">
+      <thead><tr id="tlHeadRow"><th class="room-col">강의실</th></tr></thead>
+      <tbody id="tlBody"></tbody>
+    </table>
+  </div>
+
+</div>
+
+<!-- ===== 예약 생성/수정 모달 ===== -->
+<div class="modal-overlay" id="bookingModal">
+  <div class="modal-card">
+    <h3 id="bmTitle">강의실 예약</h3>
+    <div class="msub" id="bmSub"></div>
+    <div class="form-row"><label>회의 제목</label><input class="field" id="bmTitleInput" placeholder="예: 부서 워크숍"></div>
+    <div class="form-row"><label>강의실</label>
+      <select class="field" id="bmRoom"></select>
+    </div>
+    <div class="row-2">
+      <div class="form-row"><label>시작</label><select class="field" id="bmStart"></select></div>
+      <div class="form-row"><label>종료</label><select class="field" id="bmEnd"></select></div>
+    </div>
+    <div class="form-row"><label>예약자 이름 / 부서</label><input class="field" id="bmReserver" placeholder="예: 경력개발지원단 김OO"></div>
+    <div class="form-row"><label>사용 목적 (선택)</label><textarea class="field" id="bmPurpose"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-utility" onclick="closeModal('bookingModal')">취소</button>
+      <button class="btn btn-primary" id="bmSaveBtn">예약하기</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 예약 상세(읽기전용/내예약) 모달 ===== -->
+<div class="modal-overlay" id="detailModal">
+  <div class="modal-card">
+    <h3 id="dmTitle">예약 정보</h3>
+    <div id="dmBody"></div>
+    <div class="modal-actions" id="dmActions"></div>
+  </div>
+</div>
+
+<script>
+  /* ============================================================
+     Supabase 설정 — 본인 프로젝트 URL / anon key로 바꿔주세요.
+     supabase_schema_reservation.sql 을 SQL Editor에서 먼저 실행해야 합니다.
+     ============================================================ */
+  const SUPABASE_URL = "YOUR_SUPABASE_URL";
+  const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
+  const supabaseConfigured = SUPABASE_URL.startsWith('http') && SUPABASE_ANON_KEY.length > 20;
+  const sb = supabaseConfigured ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+  if(!supabaseConfigured) document.getElementById('configBanner').style.display = 'block';
+
+  /* ============================================================
+     기준 데이터 (Supabase 미연결 시 이 값으로 동작합니다)
+     ============================================================ */
+  const roomsFallback = [
+    { id:1,  room_name:'301호',  capacity:11, status:'active'  },
+    { id:2,  room_name:'302호',  capacity:15, status:'active'  },
+    { id:3,  room_name:'303호',  capacity:15, status:'active'  },
+    { id:4,  room_name:'304호',  capacity:11, status:'active'  },
+    { id:5,  room_name:'305호',  capacity:14, status:'active'  },
+    { id:6,  room_name:'306호',  capacity:15, status:'active'  },
+    { id:7,  room_name:'307호',  capacity:13, status:'active'  },
+    { id:8,  room_name:'308호',  capacity:30, status:'active'  },
+    { id:9,  room_name:'309호',  capacity:30, status:'active'  },
+    { id:10, room_name:'310호',  capacity:13, status:'blocked' },
+    { id:11, room_name:'401호',  capacity:16, status:'active'  },
+    { id:12, room_name:'402호',  capacity:16, status:'active'  },
+    { id:13, room_name:'403호',  capacity:16, status:'active'  },
+    { id:14, room_name:'404호',  capacity:12, status:'active'  },
+    { id:15, room_name:'405호',  capacity:16, status:'active'  },
+    { id:16, room_name:'406호',  capacity:16, status:'active'  },
+    { id:17, room_name:'407호',  capacity:11, status:'active'  },
+    { id:18, room_name:'408호',  capacity:14, status:'active'  },
+    { id:19, room_name:'409호',  capacity:14, status:'active'  },
+    { id:20, room_name:'410호',  capacity:14, status:'active'  },
+    { id:21, room_name:'411호',  capacity:14, status:'active'  },
+    { id:22, room_name:'412호',  capacity:14, status:'active'  },
+    { id:23, room_name:'B107호', capacity:16, status:'active'  },
+    { id:24, room_name:'504호',  capacity:25, status:'active'  },
+    { id:25, room_name:'101호',  capacity:25, status:'blocked' },
+  ];
+  // period: 'am' = 09:00–12:50, 'pm' = 13:10–17:00 (기관 공통 고정 시간대)
+  const fixedFallback = [
+    { room_id:2,  period:'am', class_code:'2B' },
+    { room_id:3,  period:'am', class_code:'1B' }, { room_id:3,  period:'pm', class_code:'2E' },
+    { room_id:4,  period:'am', class_code:'1A' },
+    { room_id:5,  period:'am', class_code:'3E' },
+    { room_id:6,  period:'am', class_code:'2C' },
+    { room_id:7,  period:'am', class_code:'2D' },
+    { room_id:8,  period:'am', class_code:'5A' }, { room_id:8,  period:'pm', class_code:'긴키대' },
+    { room_id:9,  period:'am', class_code:'5B' },
+    { room_id:11, period:'am', class_code:'4A' }, { room_id:11, period:'pm', class_code:'1C' },
+    { room_id:12, period:'am', class_code:'4B' }, { room_id:12, period:'pm', class_code:'1D' },
+    { room_id:13, period:'am', class_code:'4C' },
+    { room_id:14, period:'am', class_code:'6B' },
+    { room_id:15, period:'am', class_code:'4D' },
+    { room_id:16, period:'am', class_code:'4F' },
+    { room_id:17, period:'am', class_code:'6A' },
+    { room_id:18, period:'am', class_code:'3A' },
+    { room_id:19, period:'am', class_code:'3B' },
+    { room_id:20, period:'am', class_code:'3C' },
+    { room_id:21, period:'am', class_code:'3D' },
+    { room_id:22, period:'am', class_code:'2A' },
+    { room_id:24, period:'am', class_code:'4E' }, { room_id:24, period:'pm', class_code:'4E' },
+  ];
+  const PERIOD_TIME = { am:{ start:'09:00', end:'12:50' }, pm:{ start:'13:10', end:'17:00' } };
+
+  let bookingsFallback = []; // { id, room_id, title, reserver_name, booking_date, start_time, end_time, purpose }
+
+  /* ============================================================
+     공용 DB 헬퍼
+     ============================================================ */
+  const db = {
+    async list(table, fallbackArr, extra){
+      if(!sb) return fallbackArr;
+      let q = sb.from(table).select('*');
+      if(extra) q = extra(q);
+      const { data, error } = await q;
+      if(error){ console.error(table, error); return fallbackArr; }
+      return data;
+    },
+    async insert(table, row, fallbackArr){
+      if(!sb){
+        row.id = (fallbackArr.reduce((m,r)=>Math.max(m,r.id||0),0)) + 1;
+        fallbackArr.push(row);
+        return { ok:true, data:row };
+      }
+      const { data, error } = await sb.from(table).insert(row).select();
+      if(error) return { ok:false, error };
+      return { ok:true, data:data[0] };
+    },
+    async update(table, id, patch, fallbackArr){
+      if(!sb){
+        const idx = fallbackArr.findIndex(r=>r.id===id);
+        if(idx>-1) Object.assign(fallbackArr[idx], patch);
+        return { ok:true, data:fallbackArr[idx] };
+      }
+      const { data, error } = await sb.from(table).update(patch).eq('id', id).select();
+      if(error) return { ok:false, error };
+      return { ok:true, data:data[0] };
+    },
+    async remove(table, id, fallbackArr){
+      if(!sb){
+        const idx = fallbackArr.findIndex(r=>r.id===id);
+        if(idx>-1) fallbackArr.splice(idx,1);
+        return true;
+      }
+      const { error } = await sb.from(table).delete().eq('id', id);
+      return !error;
+    }
+  };
+
+  /* ============================================================
+     시간 그리드 유틸 — 09:00~21:00, 30분 단위 (24칸)
+     ============================================================ */
+  const GRID_START = 9*60, GRID_END = 21*60, SLOT_MIN = 30;
+  const SLOT_COUNT = (GRID_END - GRID_START) / SLOT_MIN; // 24
+  function toMin(t){ const [h,m]=t.split(':').map(Number); return h*60+m; }
+  function toHHMM(min){ const h=Math.floor(min/60), m=min%60; return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0'); }
+  function slotLabels(){
+    const arr=[];
+    for(let m=GRID_START; m<GRID_END; m+=SLOT_MIN) arr.push(toHHMM(m));
+    return arr;
+  }
+  function rangeToSlotIdx(startT, endT){
+    const s = Math.max(0, Math.floor((toMin(startT)-GRID_START)/SLOT_MIN));
+    const e = Math.min(SLOT_COUNT, Math.ceil((toMin(endT)-GRID_START)/SLOT_MIN));
+    return { s, e: Math.max(e, s+1) };
+  }
+  function fmtDate(d){
+    const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0');
+    return `${y}-${m}-${day}`;
+  }
+  const DOW = ['일','월','화','수','목','금','토'];
+
+  /* ============================================================
+     상태
+     ============================================================ */
+  let rooms = [];
+  let fixedSchedules = [];
+  let dayBookings = []; // 선택된 날짜의 예약 전체
+  let currentDate = new Date();
+  let myName = '';
+
+  document.getElementById('myNameInput').addEventListener('input', e=>{ myName = e.target.value.trim(); });
+
+  /* ============================================================
+     렌더링
+     ============================================================ */
+  function buildHeader(){
+    const row = document.getElementById('tlHeadRow');
+    row.querySelectorAll('.slot-col').forEach(n=>n.remove());
+    slotLabels().forEach((label, i)=>{
+      const th = document.createElement('th');
+      th.className = 'slot-col';
+      th.textContent = (i % 2 === 0) ? label : '';
+      row.appendChild(th);
+    });
+  }
+
+  function computeOccupied(roomId){
+    const fixed = fixedSchedules
+      .filter(f=>f.room_id===roomId)
+      .map(f=>{
+        const t = PERIOD_TIME[f.period];
+        const { s, e } = rangeToSlotIdx(t.start, t.end);
+        return { s, e, type:'fixed', label:(f.class_code||'')+'반', sub: t.start+'–'+t.end };
+      });
+    const bookings = dayBookings
+      .filter(b=>b.room_id===roomId)
+      .map(b=>{
+        const { s, e } = rangeToSlotIdx(b.start_time, b.end_time);
+        return { s, e, type:'booking', label:b.title, sub:b.start_time+'–'+b.end_time, data:b };
+      });
+    return [...fixed, ...bookings].sort((a,b)=>a.s-b.s);
+  }
+
+  function renderGrid(){
+    const tbody = document.getElementById('tlBody');
+    tbody.innerHTML = '';
+    const today = new Date();
+    const isToday = fmtDate(currentDate) === fmtDate(today);
+    const nowMin = today.getHours()*60 + today.getMinutes();
+    const showPastDim = document.getElementById('fltPast').checked;
+    const mineOnly = document.getElementById('fltMine').checked;
+    const showOthers = document.getElementById('fltOthers').checked;
+
+    rooms.forEach(room=>{
+      const tr = document.createElement('tr');
+
+      const roomTd = document.createElement('td');
+      roomTd.className = 'room-cell';
+      roomTd.innerHTML = `<div class="rn">${room.room_name}</div><div class="rc">${room.capacity}명</div>`;
+      tr.appendChild(roomTd);
+
+      if(room.status === 'blocked'){
+        const td = document.createElement('td');
+        td.className = 'slot'; td.colSpan = SLOT_COUNT;
+        td.innerHTML = `<div class="cell-inner blocked">사용불가</div>`;
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        return;
+      }
+
+      const occupied = computeOccupied(room.id);
+      let cursor = 0;
+      occupied.forEach(block=>{
+        if(block.s > cursor) cursor = fillFree(tr, room, cursor, block.s, isToday, nowMin, showPastDim);
+        const td = document.createElement('td');
+        td.className = 'slot'; td.colSpan = block.e - block.s;
+        const isMine = block.type==='booking' && block.data.reserver_name && myName && block.data.reserver_name.trim().toLowerCase()===myName.toLowerCase();
+        let hidden = false;
+        if(block.type==='booking'){
+          if(mineOnly && !isMine) hidden = true;
+          if(!showOthers && !isMine) hidden = true;
+        }
+        const cls = block.type==='fixed' ? 'fixed' : ('booking' + (isMine?' mine':''));
+        td.innerHTML = `<div class="cell-inner ${cls}${hidden?' dim':''}" data-type="${block.type}" data-room="${room.id}">
+            <span>${block.label}</span><span class="sub">${block.sub}</span>
+          </div>`;
+        if(block.type==='booking'){
+          td.querySelector('.cell-inner').addEventListener('click', ()=> openDetail(block.data, isMine));
+        }
+        tr.appendChild(td);
+        cursor = block.e;
+      });
+      if(cursor < SLOT_COUNT) fillFree(tr, room, cursor, SLOT_COUNT, isToday, nowMin, showPastDim);
+
+      tbody.appendChild(tr);
+    });
+
+    positionNowLine(isToday, nowMin);
+  }
+
+  function fillFree(tr, room, from, to, isToday, nowMin, showPastDim){
+    for(let i=from; i<to; i++){
+      const slotStart = GRID_START + i*SLOT_MIN;
+      const isPast = isToday && (slotStart + SLOT_MIN) <= nowMin;
+      const td = document.createElement('td');
+      td.className = 'slot';
+      td.innerHTML = `<div class="cell-inner free${(isPast && showPastDim)?' past':''}"></div>`;
+      if(!isPast){
+        td.querySelector('.cell-inner').addEventListener('click', ()=> openBookingModal(room, i));
+      }
+      tr.appendChild(td);
+    }
+    return to;
+  }
+
+  function positionNowLine(isToday, nowMin){
+    const panel = document.getElementById('gridPanel');
+    panel.querySelectorAll('.now-line, .now-dot').forEach(n=>n.remove());
+    if(!isToday || nowMin < GRID_START || nowMin > GRID_END) return;
+    const offsetSlots = (nowMin - GRID_START) / SLOT_MIN;
+    const left = 150 + offsetSlots * 56; // label-w + slot-w * offset
+    const line = document.createElement('div');
+    line.className = 'now-line';
+    line.style.left = left + 'px';
+    line.style.height = document.getElementById('tlTable').offsetHeight + 'px';
+    panel.appendChild(line);
+    const dot = document.createElement('div');
+    dot.className = 'now-dot';
+    dot.style.left = left + 'px';
+    panel.appendChild(dot);
+  }
+
+  /* ============================================================
+     예약 생성 모달
+     ============================================================ */
+  function fillTimeSelect(sel, excludeAfter){
+    sel.innerHTML = '';
+    slotLabels().concat([toHHMM(GRID_END)]).forEach(t=>{
+      if(excludeAfter && toMin(t) <= toMin(excludeAfter)) return;
+      const opt = document.createElement('option');
+      opt.value = t; opt.textContent = t;
+      sel.appendChild(opt);
+    });
+  }
+
+  let editingBookingId = null;
+
+  function openBookingModal(room, slotIdx){
+    editingBookingId = null;
+    const startT = toHHMM(GRID_START + slotIdx*SLOT_MIN);
+    const endT = toHHMM(GRID_START + (slotIdx+1)*SLOT_MIN);
+
+    document.getElementById('bmTitle').textContent = '강의실 예약';
+    document.getElementById('bmSub').textContent = `${fmtDate(currentDate)} (${DOW[currentDate.getDay()]})`;
+    document.getElementById('bmTitleInput').value = '';
+    document.getElementById('bmPurpose').value = '';
+    document.getElementById('bmReserver').value = myName;
+
+    const roomSel = document.getElementById('bmRoom');
+    roomSel.innerHTML = '';
+    rooms.filter(r=>r.status!=='blocked').forEach(r=>{
+      const opt = document.createElement('option');
+      opt.value = r.id; opt.textContent = `${r.room_name} (${r.capacity}인)`;
+      if(r.id===room.id) opt.selected = true;
+      roomSel.appendChild(opt);
+    });
+
+    const startSel = document.getElementById('bmStart');
+    const endSel = document.getElementById('bmEnd');
+    fillTimeSelect(startSel, null);
+    startSel.value = startT;
+    fillTimeSelect(endSel, startT);
+    endSel.value = endT;
+    startSel.onchange = ()=> fillTimeSelect(endSel, startSel.value);
+
+    document.getElementById('bmSaveBtn').textContent = '예약하기';
+    openModal('bookingModal');
+  }
+
+  document.getElementById('bmSaveBtn').addEventListener('click', async function createHandler(){
+    if(editingBookingId) return; // 수정은 별도 핸들러가 처리
+    const title = document.getElementById('bmTitleInput').value.trim();
+    const reserver = document.getElementById('bmReserver').value.trim();
+    const roomId = Number(document.getElementById('bmRoom').value);
+    const start = document.getElementById('bmStart').value;
+    const end = document.getElementById('bmEnd').value;
+    const purpose = document.getElementById('bmPurpose').value.trim();
+
+    if(!title){ alert('회의 제목을 입력해주세요.'); return; }
+    if(!reserver){ alert('예약자 이름/부서를 입력해주세요.'); return; }
+    if(toMin(end) <= toMin(start)){ alert('종료 시간은 시작 시간보다 늦어야 해요.'); return; }
+    if(!myName){ myName = reserver; document.getElementById('myNameInput').value = reserver; }
+
+    const row = {
+      room_id: roomId, title, reserver_name: reserver,
+      booking_date: fmtDate(currentDate), start_time: start, end_time: end, purpose
+    };
+
+    const res = await db.insert('bookings', row, bookingsFallback);
+    if(!res.ok){
+      alert('예약에 실패했어요. 이미 같은 시간에 예약이 있을 수 있어요.\n(' + (res.error?.message||'') + ')');
+      return;
+    }
+    closeModal('bookingModal');
+    await loadDay();
+  });
+
+  /* ============================================================
+     예약 상세 / 수정 / 취소 모달
+     ============================================================ */
+  function openDetail(booking, isMine){
+    document.getElementById('dmTitle').textContent = isMine ? '내 예약' : '예약 정보';
+    const room = rooms.find(r=>r.id===booking.room_id);
+    document.getElementById('dmBody').innerHTML = `
+      <div class="detail-row"><div class="k">제목</div><div>${booking.title}</div></div>
+      <div class="detail-row"><div class="k">강의실</div><div>${room?room.room_name:''}</div></div>
+      <div class="detail-row"><div class="k">시간</div><div>${booking.start_time}–${booking.end_time}</div></div>
+      <div class="detail-row"><div class="k">예약자</div><div>${booking.reserver_name}</div></div>
+      ${booking.purpose ? `<div class="detail-row"><div class="k">목적</div><div>${booking.purpose}</div></div>` : ''}
+    `;
+    const actions = document.getElementById('dmActions');
+    if(isMine){
+      actions.innerHTML = `
+        <button class="btn btn-danger" id="dmCancelBtn">예약 취소</button>
+        <span style="flex:1;"></span>
+        <button class="btn btn-utility" onclick="closeModal('detailModal')">닫기</button>
+        <button class="btn btn-primary" id="dmEditBtn">수정</button>
+      `;
+      document.getElementById('dmCancelBtn').addEventListener('click', async ()=>{
+        if(!confirm('이 예약을 취소할까요?')) return;
+        const ok = await db.remove('bookings', booking.id, bookingsFallback);
+        if(ok){ closeModal('detailModal'); await loadDay(); }
+      });
+      document.getElementById('dmEditBtn').addEventListener('click', ()=>{
+        closeModal('detailModal');
+        openEditModal(booking);
+      });
+    } else {
+      actions.innerHTML = `<span style="flex:1;"></span><button class="btn btn-utility" onclick="closeModal('detailModal')">닫기</button>`;
+    }
+    openModal('detailModal');
+  }
+
+  function openEditModal(booking){
+    editingBookingId = booking.id;
+    document.getElementById('bmTitle').textContent = '예약 수정';
+    document.getElementById('bmSub').textContent = `${booking.booking_date}`;
+    document.getElementById('bmTitleInput').value = booking.title;
+    document.getElementById('bmPurpose').value = booking.purpose || '';
+    document.getElementById('bmReserver').value = booking.reserver_name;
+
+    const roomSel = document.getElementById('bmRoom');
+    roomSel.innerHTML = '';
+    rooms.filter(r=>r.status!=='blocked').forEach(r=>{
+      const opt = document.createElement('option');
+      opt.value = r.id; opt.textContent = `${r.room_name} (${r.capacity}인)`;
+      if(r.id===booking.room_id) opt.selected = true;
+      roomSel.appendChild(opt);
+    });
+
+    const startSel = document.getElementById('bmStart');
+    const endSel = document.getElementById('bmEnd');
+    fillTimeSelect(startSel, null);
+    startSel.value = booking.start_time;
+    fillTimeSelect(endSel, booking.start_time);
+    endSel.value = booking.end_time;
+    startSel.onchange = ()=> fillTimeSelect(endSel, startSel.value);
+
+    document.getElementById('bmSaveBtn').textContent = '저장';
+    openModal('bookingModal');
+  }
+
+  document.getElementById('bmSaveBtn').addEventListener('click', async function editHandler(){
+    if(!editingBookingId) return; // 신규 등록은 위 createHandler가 처리
+    const title = document.getElementById('bmTitleInput').value.trim();
+    const reserver = document.getElementById('bmReserver').value.trim();
+    const roomId = Number(document.getElementById('bmRoom').value);
+    const start = document.getElementById('bmStart').value;
+    const end = document.getElementById('bmEnd').value;
+    const purpose = document.getElementById('bmPurpose').value.trim();
+    if(!title || !reserver) return;
+    if(toMin(end) <= toMin(start)){ alert('종료 시간은 시작 시간보다 늦어야 해요.'); return; }
+
+    const res = await db.update('bookings', editingBookingId,
+      { room_id: roomId, title, reserver_name: reserver, start_time: start, end_time: end, purpose }, bookingsFallback);
+    if(res.ok){
+      editingBookingId = null;
+      closeModal('bookingModal');
+      await loadDay();
+    } else {
+      alert('수정에 실패했어요. 다른 예약과 겹칠 수 있어요.');
+    }
+  });
+
+  /* ============================================================
+     모달 공통
+     ============================================================ */
+  function openModal(id){ document.getElementById(id).classList.add('open'); }
+  function closeModal(id){ document.getElementById(id).classList.remove('open'); if(id==='bookingModal') editingBookingId = null; }
+
+  /* ============================================================
+     날짜 탐색
+     ============================================================ */
+  function updateDateLabel(){
+    document.getElementById('dateLabel').textContent =
+      `${currentDate.getFullYear()}년 ${currentDate.getMonth()+1}월 ${currentDate.getDate()}일 (${DOW[currentDate.getDay()]})`;
+    document.getElementById('datePicker').value = fmtDate(currentDate);
+  }
+  async function loadDay(){
+    updateDateLabel();
+    const dateStr = fmtDate(currentDate);
+    if(sb){
+      dayBookings = await db.list('bookings', bookingsFallback, q => q.eq('booking_date', dateStr));
+    } else {
+      dayBookings = bookingsFallback.filter(b=>b.booking_date===dateStr);
+    }
+    renderGrid();
+  }
+
+  document.getElementById('prevDay').addEventListener('click', ()=>{ currentDate.setDate(currentDate.getDate()-1); loadDay(); });
+  document.getElementById('nextDay').addEventListener('click', ()=>{ currentDate.setDate(currentDate.getDate()+1); loadDay(); });
+  document.getElementById('todayBtn').addEventListener('click', ()=>{ currentDate = new Date(); loadDay(); });
+  document.getElementById('datePicker').addEventListener('change', e=>{
+    if(!e.target.value) return;
+    const [y,m,d] = e.target.value.split('-').map(Number);
+    currentDate = new Date(y, m-1, d);
+    loadDay();
+  });
+  ['fltMine','fltOthers','fltPast'].forEach(id=>{
+    document.getElementById(id).addEventListener('change', renderGrid);
+  });
+
+  /* ============================================================
+     초기 로딩
+     ============================================================ */
+  async function init(){
+    rooms = await db.list('rooms', roomsFallback);
+    fixedSchedules = await db.list('fixed_schedules', fixedFallback);
+    buildHeader();
+    await loadDay();
+  }
+  init();
+</script>
+</body>
+</html>
