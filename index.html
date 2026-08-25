@@ -74,6 +74,30 @@
   .user-box .u-email{ font-size:12.5px; color:var(--ink-muted); }
   .user-box .u-name{ font-size:13.5px; font-weight:700; }
 
+  .tab-nav{ display:flex; gap:4px; background:var(--canvas-soft); border-radius:var(--r-md); padding:3px; }
+  .tab-btn{ padding:8px 16px; border-radius:6px; font-size:13.5px; font-weight:600; color:var(--ink-muted); }
+  .tab-btn.active{ background:#fff; color:var(--ink); box-shadow:var(--shadow-1); }
+
+  /* ===== Work log ===== */
+  .wl-grid{ display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px; }
+  @media (max-width:840px){ .wl-grid{ grid-template-columns:1fr; } }
+  .panel{ background:#fff; border:1px solid var(--hairline); border-radius:var(--r-lg); padding:20px; box-shadow:var(--shadow-1); }
+  .panel h3{ font-size:14.5px; font-weight:700; margin-bottom:14px; }
+  .wl-info-row{ display:flex; justify-content:space-between; padding:7px 0; border-bottom:1px solid var(--hairline); font-size:13px; }
+  .wl-info-row:last-child{ border-bottom:none; }
+  .wl-info-row .k{ color:var(--ink-faint); }
+  .wl-info-row .v{ font-weight:600; }
+  .wl-remaining{ font-size:22px; font-weight:800; color:var(--primary); }
+  .status-pill{ display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:700; padding:7px 14px; border-radius:var(--r-full); margin-bottom:14px; }
+  .status-pill.off{ background:var(--canvas-soft); color:var(--ink-muted); }
+  .status-pill.on{ background:#e4f7e8; color:#1a7431; }
+  .status-pill .dot{ width:7px; height:7px; border-radius:50%; background:currentColor; }
+  .wl-actions{ display:flex; gap:8px; margin-bottom:12px; }
+  .wl-table{ width:100%; border-collapse:collapse; font-size:12.5px; }
+  .wl-table th{ text-align:left; padding:8px 6px; color:var(--ink-faint); font-weight:600; font-size:11px; border-bottom:1px solid var(--hairline); }
+  .wl-table td{ padding:8px 6px; border-bottom:1px solid var(--hairline); }
+  .wl-user-select{ font-size:13px; padding:6px 10px; border:1px solid var(--hairline); border-radius:var(--r-md); margin-bottom:14px; }
+
   /* ===== Instruction + filters ===== */
   .hint-row{ display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:14px; }
   .hint{ font-size:13px; color:var(--ink-muted); }
@@ -192,12 +216,9 @@
       <span class="mark">국</span>
       <div>강의실 예약<small>국제교육원 · 한국어교육센터</small></div>
     </div>
-    <div class="date-nav">
-      <button id="prevDay" aria-label="이전 날짜">‹</button>
-      <button id="todayBtn" class="today-btn">오늘</button>
-      <button id="nextDay" aria-label="다음 날짜">›</button>
-      <span class="d-label" id="dateLabel">-</span>
-      <input type="date" id="datePicker">
+    <div class="tab-nav">
+      <button class="tab-btn active" id="tabReservation">강의실 예약</button>
+      <button class="tab-btn" id="tabWorklog">근무 기록</button>
     </div>
     <div class="user-box">
       <button class="btn btn-utility hidden" id="adminBtn">⚙️ 관리자</button>
@@ -208,6 +229,15 @@
       </div>
       <button class="btn btn-utility" id="logoutBtn">로그아웃</button>
     </div>
+  </div>
+
+  <div id="viewReservation">
+  <div class="date-nav" style="margin-bottom:16px;">
+    <button id="prevDay" aria-label="이전 날짜">‹</button>
+    <button id="todayBtn" class="today-btn">오늘</button>
+    <button id="nextDay" aria-label="다음 날짜">›</button>
+    <span class="d-label" id="dateLabel">-</span>
+    <input type="date" id="datePicker">
   </div>
 
   <div class="hint-row">
@@ -233,8 +263,65 @@
       <tbody id="tlBody"></tbody>
     </table>
   </div>
+  </div><!-- /viewReservation -->
 
-</div>
+  <!-- ===== 근무 기록 뷰 ===== -->
+  <div id="viewWorklog" class="hidden">
+    <select class="wl-user-select hidden" id="wlUserSelect"></select>
+
+    <div class="wl-grid">
+      <div class="panel">
+        <h3>내 정보</h3>
+        <div class="wl-info-row"><span class="k">이름</span><span class="v" id="wlName">-</span></div>
+        <div class="wl-info-row"><span class="k">학번</span><span class="v" id="wlStudentId">-</span></div>
+        <div class="wl-info-row"><span class="k">학부/전공</span><span class="v" id="wlDept">-</span></div>
+        <div class="wl-info-row"><span class="k">근무처</span><span class="v" id="wlWorkplace">-</span></div>
+        <div class="wl-info-row"><span class="k">총 배정시간</span><span class="v" id="wlTotal">-</span></div>
+        <div class="wl-info-row"><span class="k">사용시간</span><span class="v" id="wlUsed">-</span></div>
+        <div class="wl-info-row"><span class="k">남은시간</span><span class="v wl-remaining" id="wlRemaining">-</span></div>
+      </div>
+
+      <div class="panel">
+        <h3>출퇴근 체크</h3>
+        <div class="status-pill off" id="wlStatusPill"><span class="dot"></span><span id="wlStatusText">출근 전이에요</span></div>
+        <div class="form-row"><label>근로상세내역 (선택)</label><textarea class="field" id="wlDetailInput" placeholder="오늘 한 일을 간단히 적어주세요"></textarea></div>
+        <div class="wl-actions">
+          <button class="btn btn-primary" id="clockInBtn">출근하기</button>
+          <button class="btn btn-danger hidden" id="clockOutBtn">퇴근하기</button>
+          <button class="btn btn-utility" id="manualAddBtn">+ 직접 추가</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>근무 기록</h3>
+      <div class="room-table-wrap" style="overflow-x:auto;">
+        <table class="wl-table">
+          <thead><tr><th>날짜</th><th>요일</th><th>근무시간</th><th>실제 근로시간</th><th>근로상세내역</th><th></th></tr></thead>
+          <tbody id="wlTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div><!-- /viewWorklog -->
+
+</div><!-- /appRoot -->
+
+<!-- ===== 근무기록 수동 추가/수정 모달 ===== -->
+  <div class="modal-overlay" id="worklogModal">
+    <div class="modal-card">
+      <h3 id="wmTitle">근무 기록 추가</h3>
+      <div class="form-row"><label>날짜</label><input class="field" id="wmDate" type="date"></div>
+      <div class="row-2">
+        <div class="form-row"><label>출근 시간</label><input class="field" id="wmStart" type="time"></div>
+        <div class="form-row"><label>퇴근 시간</label><input class="field" id="wmEnd" type="time"></div>
+      </div>
+      <div class="form-row"><label>근로상세내역</label><textarea class="field" id="wmDetail"></textarea></div>
+      <div class="modal-actions">
+        <button class="btn btn-utility" onclick="closeModal('worklogModal')">취소</button>
+        <button class="btn btn-primary" id="wmSaveBtn">저장</button>
+      </div>
+    </div>
+  </div>
 
 <!-- ===== 예약 생성/수정 모달 ===== -->
 <div class="modal-overlay" id="bookingModal">
@@ -288,7 +375,7 @@
     <div class="admin-section">
       <h4>사용자 계정</h4>
       <table class="admin-table">
-        <thead><tr><th>이름</th><th>이메일</th><th>권한</th><th>상태</th></tr></thead>
+        <thead><tr><th>이름</th><th>이메일</th><th>권한</th><th>총 배정시간</th><th>상태</th></tr></thead>
         <tbody id="usersTableBody"></tbody>
       </table>
       <div class="msub" style="margin-top:8px;">계정 삭제는 보안상 이 화면에서 지원하지 않아요. '비활성화'로 로그인을 막을 수 있어요.</div>
@@ -405,7 +492,11 @@
       await sb.auth.signOut();
       return;
     }
-    currentUser = { id:user.id, email:user.email, display_name: profile.display_name || user.email, role: profile.role };
+    currentUser = {
+      id:user.id, email:user.email, display_name: profile.display_name || user.email, role: profile.role,
+      workplace: profile.workplace || '국제교육원 교학팀', department: profile.department || '',
+      student_id: profile.student_id || '', total_allocated_hours: profile.total_allocated_hours || 0
+    };
 
     document.getElementById('authScreen').classList.add('hidden');
     document.getElementById('appRoot').classList.remove('hidden');
@@ -416,7 +507,25 @@
       document.getElementById('adminBtn').classList.remove('hidden');
     }
     await initApp();
+    await initWorklogUsers();
   }
+
+  /* ============================================================
+     탭 전환
+     ============================================================ */
+  document.getElementById('tabReservation').addEventListener('click', ()=>{
+    document.getElementById('tabReservation').classList.add('active');
+    document.getElementById('tabWorklog').classList.remove('active');
+    document.getElementById('viewReservation').classList.remove('hidden');
+    document.getElementById('viewWorklog').classList.add('hidden');
+  });
+  document.getElementById('tabWorklog').addEventListener('click', async ()=>{
+    document.getElementById('tabWorklog').classList.add('active');
+    document.getElementById('tabReservation').classList.remove('active');
+    document.getElementById('viewWorklog').classList.remove('hidden');
+    document.getElementById('viewReservation').classList.add('hidden');
+    await loadWorklogView(wlViewingUserId);
+  });
 
   /* ============================================================
      앱 초기화 & 렌더링
@@ -725,6 +834,10 @@
             <option value="admin" ${u.role==='admin'?'selected':''}>관리자</option>
           </select>
         </td>
+        <td>
+          <input class="mini-select" type="number" style="width:64px;" value="${u.total_allocated_hours||0}"
+                 onchange="updateUserHours('${u.id}', this.value)">
+        </td>
         <td><button class="mini-btn" onclick="toggleUserActive('${u.id}', ${u.is_active})">${u.is_active===false?'활성화':'비활성화'}</button></td>
       </tr>
     `).join('');
@@ -734,9 +847,160 @@
     await sb.from('profiles').update({ role }).eq('id', id);
     await renderAdminUsers();
   }
+  async function updateUserHours(id, hours){
+    await sb.from('profiles').update({ total_allocated_hours: Number(hours) || 0 }).eq('id', id);
+    await renderAdminUsers();
+    if(id === wlViewingUserId) await loadWorklogView(id);
+  }
   async function toggleUserActive(id, current){
     await sb.from('profiles').update({ is_active: !(current===true || current==='true') }).eq('id', id);
     await renderAdminUsers();
+  }
+
+  /* ============================================================
+     근무 기록 (출퇴근 체크)
+     ============================================================ */
+  let wlViewingUserId = null;   // 현재 화면에 보여주는 사람 (관리자는 다른 사람도 볼 수 있음)
+  let wlOpenEntry = null;       // 오늘 '출근'만 하고 '퇴근' 안 한 기록 (있으면)
+  let editingWorklogId = null;
+
+  const DOW_KR = ['일','월','화','수','목','금','토'];
+  function todayStr(){ return fmtDate(new Date()); }
+
+  async function initWorklogUsers(){
+    wlViewingUserId = currentUser.id;
+    const sel = document.getElementById('wlUserSelect');
+    if(currentUser.role === 'admin'){
+      const { data } = await sb.from('profiles').select('id, display_name, email').order('display_name');
+      sel.innerHTML = (data||[]).map(u=>`<option value="${u.id}">${u.display_name || u.email}${u.id===currentUser.id?' (나)':''}</option>`).join('');
+      sel.value = currentUser.id;
+      sel.classList.remove('hidden');
+      sel.onchange = ()=>{ wlViewingUserId = sel.value; loadWorklogView(wlViewingUserId); };
+    } else {
+      sel.classList.add('hidden');
+    }
+  }
+
+  async function loadWorklogView(userId){
+    const { data: profile } = await sb.from('profiles').select('*').eq('id', userId).single();
+    if(!profile) return;
+
+    document.getElementById('wlName').textContent = profile.display_name || profile.email;
+    document.getElementById('wlStudentId').textContent = profile.student_id || '-';
+    document.getElementById('wlDept').textContent = profile.department || '-';
+    document.getElementById('wlWorkplace').textContent = profile.workplace || '-';
+    document.getElementById('wlTotal').textContent = (profile.total_allocated_hours||0) + '시간';
+
+    const { data: logs } = await sb.from('work_logs').select('*').eq('user_id', userId).order('work_date', { ascending:false });
+    const allLogs = logs || [];
+    const used = allLogs.reduce((sum,l)=> sum + (Number(l.actual_hours)||0), 0);
+    document.getElementById('wlUsed').textContent = used.toFixed(1) + '시간';
+    document.getElementById('wlRemaining').textContent = Math.max(0, (profile.total_allocated_hours||0) - used).toFixed(1) + '시간';
+
+    // 오늘 출근했는데 퇴근 안 한 기록이 있는지 (본인 화면일 때만 출퇴근 버튼 의미 있음)
+    wlOpenEntry = allLogs.find(l=> l.work_date===todayStr() && l.clock_in && !l.clock_out) || null;
+    const isSelf = userId === currentUser.id;
+    document.getElementById('clockInBtn').classList.toggle('hidden', !isSelf || !!wlOpenEntry);
+    document.getElementById('clockOutBtn').classList.toggle('hidden', !isSelf || !wlOpenEntry);
+    const pill = document.getElementById('wlStatusPill');
+    const text = document.getElementById('wlStatusText');
+    if(!isSelf){
+      pill.className = 'status-pill off';
+      text.textContent = `${profile.display_name || profile.email}님의 기록`;
+    } else if(wlOpenEntry){
+      pill.className = 'status-pill on';
+      text.textContent = `근무중이에요 (${wlOpenEntry.clock_in}부터)`;
+      document.getElementById('wlDetailInput').value = wlOpenEntry.detail || '';
+    } else {
+      pill.className = 'status-pill off';
+      text.textContent = '출근 전이에요';
+      document.getElementById('wlDetailInput').value = '';
+    }
+
+    const tbody = document.getElementById('wlTableBody');
+    const canManage = (id)=> isSelf || currentUser.role === 'admin';
+    tbody.innerHTML = allLogs.map(l=>{
+      const d = new Date(l.work_date + 'T00:00:00');
+      const timeRange = (l.clock_in && l.clock_out) ? `${l.clock_in}~${l.clock_out}` : (l.clock_in ? `${l.clock_in}~(근무중)` : '-');
+      return `
+        <tr>
+          <td>${l.work_date}</td>
+          <td>${DOW_KR[d.getDay()]}</td>
+          <td>${timeRange}</td>
+          <td>${l.actual_hours!=null ? Number(l.actual_hours).toFixed(1) : '-'}</td>
+          <td style="max-width:220px; white-space:normal;">${l.detail||''}</td>
+          <td style="white-space:nowrap;">
+            <button class="mini-btn" onclick="openWorklogModal(${JSON.stringify(l).replace(/"/g,'&quot;')})">수정</button>
+            <button class="mini-btn" onclick="deleteWorklog(${l.id})">삭제</button>
+          </td>
+        </tr>`;
+    }).join('') || `<tr><td colspan="6" style="color:var(--ink-faint);">아직 근무 기록이 없어요.</td></tr>`;
+  }
+
+  document.getElementById('clockInBtn').addEventListener('click', async ()=>{
+    const now = new Date();
+    const time = toHHMM(now.getHours()*60 + now.getMinutes());
+    const detail = document.getElementById('wlDetailInput').value.trim();
+    const { error } = await sb.from('work_logs').insert({
+      user_id: currentUser.id, work_date: todayStr(), clock_in: time, detail: detail || null
+    });
+    if(error){ alert('출근 기록 실패: ' + error.message); return; }
+    await loadWorklogView(wlViewingUserId);
+  });
+
+  document.getElementById('clockOutBtn').addEventListener('click', async ()=>{
+    if(!wlOpenEntry) return;
+    const now = new Date();
+    const time = toHHMM(now.getHours()*60 + now.getMinutes());
+    const hours = Math.max(0, (toMin(time) - toMin(wlOpenEntry.clock_in)) / 60);
+    const detail = document.getElementById('wlDetailInput').value.trim();
+    const { error } = await sb.from('work_logs').update({
+      clock_out: time, actual_hours: Math.round(hours*10)/10, detail: detail || wlOpenEntry.detail || null
+    }).eq('id', wlOpenEntry.id);
+    if(error){ alert('퇴근 기록 실패: ' + error.message); return; }
+    await loadWorklogView(wlViewingUserId);
+  });
+
+  document.getElementById('manualAddBtn').addEventListener('click', ()=> openWorklogModal(null));
+
+  function openWorklogModal(log){
+    editingWorklogId = log ? log.id : null;
+    document.getElementById('wmTitle').textContent = log ? '근무 기록 수정' : '근무 기록 추가';
+    document.getElementById('wmDate').value = log ? log.work_date : todayStr();
+    document.getElementById('wmStart').value = log ? (log.clock_in||'') : '';
+    document.getElementById('wmEnd').value = log ? (log.clock_out||'') : '';
+    document.getElementById('wmDetail').value = log ? (log.detail||'') : '';
+    openModal('worklogModal');
+  }
+
+  document.getElementById('wmSaveBtn').addEventListener('click', async ()=>{
+    const work_date = document.getElementById('wmDate').value;
+    const start = document.getElementById('wmStart').value;
+    const end = document.getElementById('wmEnd').value;
+    const detail = document.getElementById('wmDetail').value.trim();
+    if(!work_date || !start){ alert('날짜와 출근 시간은 입력해주세요.'); return; }
+    let actual_hours = null;
+    if(start && end){
+      actual_hours = Math.max(0, Math.round(((toMin(end)-toMin(start))/60)*10)/10);
+    }
+    const row = { work_date, clock_in: start, clock_out: end || null, actual_hours, detail: detail || null };
+
+    if(editingWorklogId){
+      const { error } = await sb.from('work_logs').update(row).eq('id', editingWorklogId);
+      if(error){ alert('수정 실패: ' + error.message); return; }
+    } else {
+      const { error } = await sb.from('work_logs').insert({ ...row, user_id: wlViewingUserId });
+      if(error){ alert('추가 실패: ' + error.message); return; }
+    }
+    editingWorklogId = null;
+    closeModal('worklogModal');
+    await loadWorklogView(wlViewingUserId);
+  });
+
+  async function deleteWorklog(id){
+    if(!confirm('이 근무 기록을 삭제할까요?')) return;
+    await sb.from('work_logs').delete().eq('id', id);
+    await loadWorklogView(wlViewingUserId);
   }
 
   /* ============================================================
