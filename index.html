@@ -173,6 +173,24 @@
   .add-row-form{ display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
   .add-row-form input, .add-row-form select{ font-size:12.5px; padding:6px 8px; border:1px solid var(--hairline); border-radius:var(--r-xs); }
 
+  /* schedule grid */
+  .schedule-grid th{ text-align:center; }
+  .schedule-grid td{ vertical-align:top; padding:4px; }
+  .sg-hour-label{ font-size:11.5px; color:var(--ink-faint); font-weight:600; white-space:nowrap; padding-top:10px !important; }
+  .sg-cell{
+    min-height:44px; border:1px dashed var(--hairline); border-radius:var(--r-sm);
+    padding:5px 6px; cursor:pointer; display:flex; flex-wrap:wrap; gap:3px; align-content:flex-start;
+    transition:background .12s, border-color .12s; min-width:110px;
+  }
+  .sg-cell:hover{ background:var(--canvas-soft); border-color:var(--primary); }
+  .sg-chip{
+    font-size:10.5px; font-weight:600; padding:2px 6px; border-radius:var(--r-full);
+    background:#eef6ff; color:var(--primary-active); white-space:nowrap;
+  }
+  .sg-empty{ font-size:11px; color:var(--ink-faint); }
+  .checklist-item{ display:flex; align-items:center; gap:8px; font-size:13.5px; padding:4px 0; }
+  .checklist-item input{ width:16px; height:16px; accent-color:var(--primary); }
+
   @media (max-width:720px){
     .wrap{ padding:14px; }
     .user-box{ margin-left:0; width:100%; }
@@ -382,26 +400,29 @@
 
     <div class="admin-section">
       <h4>조교 주간 근무시간표</h4>
-      <div class="msub" style="margin-top:0;">여기서 설정한 요일별 시간이 '오늘 근무 체크' 버튼을 눌렀을 때 자동으로 기록돼요.</div>
-      <select id="wsUserSelect" class="wl-user-select" style="margin-top:8px;"></select>
-      <table class="admin-table">
-        <thead><tr><th>요일</th><th>시작</th><th>종료</th><th></th></tr></thead>
-        <tbody id="wsTableBody"></tbody>
-      </table>
-      <div class="add-row-form">
-        <select id="wsWeekday">
-          <option value="1">월</option><option value="2">화</option><option value="3">수</option>
-          <option value="4">목</option><option value="5">금</option>
-        </select>
-        <input id="wsStart" type="time">
-        <span style="align-self:center; color:var(--ink-faint);">~</span>
-        <input id="wsEnd" type="time">
-        <button class="btn btn-primary" id="wsAddBtn" style="padding:6px 14px;">구간 추가</button>
+      <div class="msub" style="margin-top:0;">시간표가 학기마다 바뀌어도 여기서 칸만 클릭해서 사람을 넣었다 뺐다 하면 돼요. 스프레드시트랑 똑같은 구조입니다.</div>
+      <div class="room-table-wrap" style="overflow-x:auto; margin-top:8px;">
+        <table class="admin-table schedule-grid" id="scheduleGridTable">
+          <thead><tr><th>시간</th><th>월</th><th>화</th><th>수</th><th>목</th><th>금</th></tr></thead>
+          <tbody id="scheduleGridBody"></tbody>
+        </table>
       </div>
-      <div class="msub" style="margin-top:6px;">점심시간처럼 중간에 끊기는 요일은 구간을 두 번(예: 10:00~12:00, 13:00~15:00) 나눠서 추가하세요.</div>
     </div>
 
     <div class="modal-actions"><span style="flex:1;"></span><button class="btn btn-utility" onclick="closeModal('adminModal')">닫기</button></div>
+  </div>
+</div>
+
+<!-- ===== 시간표 셀 편집 모달 ===== -->
+<div class="modal-overlay" id="slotModal">
+  <div class="modal-card">
+    <h3 id="slotModalTitle">근무자 선택</h3>
+    <div class="msub" id="slotModalSub"></div>
+    <div id="slotUserChecklist" style="display:flex; flex-direction:column; gap:8px; max-height:320px; overflow-y:auto;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-utility" onclick="closeModal('slotModal')">취소</button>
+      <button class="btn btn-primary" id="slotSaveBtn">저장</button>
+    </div>
   </div>
 </div>
 
@@ -879,54 +900,100 @@
   }
 
   /* ============================================================
-     관리자 — 조교 주간 근무시간표 관리
+     관리자 — 조교 주간 근무시간표 관리 (스프레드시트 스타일 그리드)
      ============================================================ */
-  let wsSelectedUserId = null;
+  const SCHEDULE_HOURS = [9,10,11,12,13,14,15,16]; // 09:00~17:00, 1시간 단위
+  let allProfilesCache = [];
 
   async function initAdminSchedule(){
-    const sel = document.getElementById('wsUserSelect');
     const { data } = await sb.from('profiles').select('id, display_name, email').order('display_name');
-    sel.innerHTML = (data||[]).map(u=>`<option value="${u.id}">${u.display_name || u.email}</option>`).join('');
-    wsSelectedUserId = (data && data[0]) ? data[0].id : null;
-    sel.value = wsSelectedUserId;
-    sel.onchange = ()=>{ wsSelectedUserId = sel.value; renderAdminScheduleTable(); };
-    await renderAdminScheduleTable();
+    allProfilesCache = data || [];
+    await renderScheduleGrid();
   }
 
-  async function renderAdminScheduleTable(){
-    if(!wsSelectedUserId) return;
-    const { data } = await sb.from('weekly_schedules').select('*').eq('user_id', wsSelectedUserId).order('weekday').order('start_time');
-    const tbody = document.getElementById('wsTableBody');
-    tbody.innerHTML = (data||[]).map(s=>`
-      <tr>
-        <td>${DOW_KR[s.weekday]}</td>
-        <td>${s.start_time}</td>
-        <td>${s.end_time}</td>
-        <td><button class="mini-btn" onclick="deleteWeeklySchedule(${s.id})">삭제</button></td>
-      </tr>
-    `).join('') || `<tr><td colspan="4" style="color:var(--ink-faint);">등록된 시간표가 없어요.</td></tr>`;
+  async function renderScheduleGrid(){
+    const { data } = await sb.from('schedule_slots').select('*');
+    const slots = data || [];
+    // key: `${weekday}-${hour}` -> [user_id, ...]
+    const map = {};
+    slots.forEach(s=>{
+      const k = `${s.weekday}-${s.hour}`;
+      (map[k] = map[k] || []).push(s.user_id);
+    });
+    const nameOf = (id) => {
+      const p = allProfilesCache.find(u=>u.id===id);
+      return p ? (p.display_name || p.email) : id;
+    };
+
+    const tbody = document.getElementById('scheduleGridBody');
+    tbody.innerHTML = SCHEDULE_HOURS.map(h=>{
+      const cells = [1,2,3,4,5].map(wd=>{
+        const ids = map[`${wd}-${h}`] || [];
+        const chips = ids.map(id=>`<span class="sg-chip">${nameOf(id)}</span>`).join('');
+        return `<td><div class="sg-cell" onclick="openSlotPicker(${wd},${h})">${chips || '<span class="sg-empty">+ 추가</span>'}</div></td>`;
+      }).join('');
+      return `<tr><td class="sg-hour-label">${String(h).padStart(2,'0')}:00–${String(h+1).padStart(2,'0')}:00</td>${cells}</tr>`;
+    }).join('');
   }
 
-  document.getElementById('wsAddBtn').addEventListener('click', async ()=>{
-    const weekday = Number(document.getElementById('wsWeekday').value);
-    const start_time = document.getElementById('wsStart').value;
-    const end_time = document.getElementById('wsEnd').value;
-    if(!start_time || !end_time){ alert('시작·종료 시간을 입력해주세요.'); return; }
-    if(toMin(end_time) <= toMin(start_time)){ alert('종료 시간은 시작 시간보다 늦어야 해요.'); return; }
-    const { error } = await sb.from('weekly_schedules').insert({ user_id: wsSelectedUserId, weekday, start_time, end_time });
-    if(error){ alert('추가 실패: ' + error.message); return; }
-    document.getElementById('wsStart').value = '';
-    document.getElementById('wsEnd').value = '';
-    await renderAdminScheduleTable();
-    if(wsSelectedUserId === wlViewingUserId) await loadWorklogView(wlViewingUserId);
+  let slotPickerCtx = null; // { weekday, hour }
+
+  async function openSlotPicker(weekday, hour){
+    slotPickerCtx = { weekday, hour };
+    document.getElementById('slotModalTitle').textContent = `${DOW_KR[weekday]}요일 ${String(hour).padStart(2,'0')}:00–${String(hour+1).padStart(2,'0')}:00 근무자`;
+    document.getElementById('slotModalSub').textContent = '체크한 사람이 이 시간대 근무자로 저장돼요.';
+
+    const { data } = await sb.from('schedule_slots').select('user_id').eq('weekday', weekday).eq('hour', hour);
+    const checkedIds = new Set((data||[]).map(r=>r.user_id));
+
+    const list = document.getElementById('slotUserChecklist');
+    list.innerHTML = allProfilesCache.map(u=>`
+      <label class="checklist-item">
+        <input type="checkbox" value="${u.id}" ${checkedIds.has(u.id) ? 'checked' : ''}>
+        ${u.display_name || u.email}
+      </label>
+    `).join('');
+    openModal('slotModal');
+  }
+
+  document.getElementById('slotSaveBtn').addEventListener('click', async ()=>{
+    const { weekday, hour } = slotPickerCtx;
+    const checked = [...document.querySelectorAll('#slotUserChecklist input:checked')].map(i=>i.value);
+
+    const { data: existing } = await sb.from('schedule_slots').select('user_id').eq('weekday', weekday).eq('hour', hour);
+    const existingIds = (existing||[]).map(r=>r.user_id);
+
+    const toAdd = checked.filter(id=> !existingIds.includes(id));
+    const toRemove = existingIds.filter(id=> !checked.includes(id));
+
+    for(const id of toAdd){
+      await sb.from('schedule_slots').insert({ user_id:id, weekday, hour });
+    }
+    for(const id of toRemove){
+      await sb.from('schedule_slots').delete().eq('weekday', weekday).eq('hour', hour).eq('user_id', id);
+    }
+
+    closeModal('slotModal');
+    await renderScheduleGrid();
+    if(checked.includes(wlViewingUserId) || toRemove.includes(wlViewingUserId)){
+      await loadWorklogView(wlViewingUserId);
+    }
   });
 
-  async function deleteWeeklySchedule(id){
-    if(!confirm('이 시간표 구간을 삭제할까요?')) return;
-    await sb.from('weekly_schedules').delete().eq('id', id);
-    await renderAdminScheduleTable();
-    if(wsSelectedUserId === wlViewingUserId) await loadWorklogView(wlViewingUserId);
+  // 연속된 시간(hour) 목록을 "10:00~12:00" 같은 구간 문자열로 합쳐줌 (점심시간처럼 끊기는 곳은 구간을 나눔)
+  function mergeHoursToSegments(hours){
+    const sorted = [...hours].sort((a,b)=>a-b);
+    const segs = [];
+    let start=null, prev=null;
+    sorted.forEach(h=>{
+      if(start===null){ start=h; prev=h; }
+      else if(h===prev+1){ prev=h; }
+      else { segs.push({ start_time: pad2(start)+':00', end_time: pad2(prev+1)+':00' }); start=h; prev=h; }
+    });
+    if(start!==null) segs.push({ start_time: pad2(start)+':00', end_time: pad2(prev+1)+':00' });
+    return segs;
   }
+  function pad2(n){ return String(n).padStart(2,'0'); }
 
   /* ============================================================
      근무 기록 (출퇴근 체크)
@@ -970,8 +1037,8 @@
     const isSelf = userId === currentUser.id;
     const todayWeekday = new Date().getDay(); // 1=월 ... 5=금 (0,6은 시간표 없음)
 
-    const { data: schedule } = await sb.from('weekly_schedules').select('*').eq('user_id', userId).eq('weekday', todayWeekday).order('start_time');
-    const todaySegments = schedule || [];
+    const { data: slotRows } = await sb.from('schedule_slots').select('hour').eq('user_id', userId).eq('weekday', todayWeekday);
+    const todaySegments = mergeHoursToSegments((slotRows||[]).map(r=>r.hour));
     const todaySegmentsText = todaySegments.map(s=>`${s.start_time}~${s.end_time}`).join(', ');
     const todayScheduledHours = todaySegments.reduce((sum,s)=> sum + Math.max(0,(toMin(s.end_time)-toMin(s.start_time))/60), 0);
 
@@ -1020,8 +1087,8 @@
 
   document.getElementById('checkTodayBtn').addEventListener('click', async ()=>{
     const todayWeekday = new Date().getDay();
-    const { data: schedule } = await sb.from('weekly_schedules').select('*').eq('user_id', currentUser.id).eq('weekday', todayWeekday).order('start_time');
-    const segments = schedule || [];
+    const { data: slotRows } = await sb.from('schedule_slots').select('hour').eq('user_id', currentUser.id).eq('weekday', todayWeekday);
+    const segments = mergeHoursToSegments((slotRows||[]).map(r=>r.hour));
     if(segments.length === 0){ alert('오늘은 예정된 근무가 없어요.'); return; }
 
     const segmentsText = segments.map(s=>`${s.start_time}~${s.end_time}`).join(', ');
