@@ -187,6 +187,7 @@
     font-size:10.5px; font-weight:600; padding:2px 6px; border-radius:var(--r-full);
     background:#eef6ff; color:var(--primary-active); white-space:nowrap;
   }
+  .sg-chip.mine{ background:var(--primary); color:#fff; }
   .sg-empty{ font-size:11px; color:var(--ink-faint); }
   .checklist-item{ display:flex; align-items:center; gap:8px; font-size:13.5px; padding:4px 0; }
   .checklist-item input{ width:16px; height:16px; accent-color:var(--primary); }
@@ -320,9 +321,12 @@
       </div>
     </div>
 
-    <div class="panel hidden" id="myScheduleWrap">
-      <h3>내 주간 근무시간표</h3>
-      <div class="msub" style="margin-top:-8px; margin-bottom:12px;">근무 요일·시간이 바뀌면 여기서 칸을 눌러 직접 수정하세요. 켜진 칸이 내 근무시간이에요.</div>
+    <div class="panel" id="myScheduleWrap">
+      <h3>전체 근무시간표</h3>
+      <div class="msub" style="margin-top:-8px; margin-bottom:12px;">
+        모두의 시간표를 한눈에 볼 수 있어요. <b>본인 칸은 클릭해서 직접 켜고 끌 수</b> 있고, 다른 사람 칸은 조회만 가능해요.
+        <span id="adminGridHint" class="hidden">(관리자는 아무 칸이나 눌러서 전체를 관리할 수 있어요.)</span>
+      </div>
       <div class="room-table-wrap" style="overflow-x:auto;">
         <table class="admin-table schedule-grid" id="myScheduleTable">
           <thead><tr><th>시간</th><th>월</th><th>화</th><th>수</th><th>목</th><th>금</th></tr></thead>
@@ -421,13 +425,7 @@
 
     <div class="admin-section">
       <h4>조교 주간 근무시간표</h4>
-      <div class="msub" style="margin-top:0;">시간표가 학기마다 바뀌어도 여기서 칸만 클릭해서 사람을 넣었다 뺐다 하면 돼요. 스프레드시트랑 똑같은 구조입니다.</div>
-      <div class="room-table-wrap" style="overflow-x:auto; margin-top:8px;">
-        <table class="admin-table schedule-grid" id="scheduleGridTable">
-          <thead><tr><th>시간</th><th>월</th><th>화</th><th>수</th><th>목</th><th>금</th></tr></thead>
-          <tbody id="scheduleGridBody"></tbody>
-        </table>
-      </div>
+      <div class="msub" style="margin-top:0;">시간표는 여기가 아니라 <b>"근무 기록" 탭의 "전체 근무시간표"</b>에서 관리해요. 관리자는 그 화면에서 아무 칸이나 눌러 전체를 편집할 수 있어요.</div>
     </div>
 
     <div class="modal-actions"><span style="flex:1;"></span><button class="btn btn-utility" onclick="closeModal('adminModal')">닫기</button></div>
@@ -587,6 +585,7 @@
     document.getElementById('viewWorklog').classList.remove('hidden');
     document.getElementById('viewReservation').classList.add('hidden');
     await loadWorklogView(wlViewingUserId);
+    await initSharedSchedule();
   });
 
   /* ============================================================
@@ -843,7 +842,6 @@
   document.getElementById('adminBtn').addEventListener('click', async ()=>{
     await renderAdminFixed();
     await renderAdminUsers();
-    await initAdminSchedule();
     openModal('adminModal');
   });
 
@@ -921,22 +919,23 @@
   }
 
   /* ============================================================
-     관리자 — 조교 주간 근무시간표 관리 (스프레드시트 스타일 그리드)
+     전체 근무시간표 — 누구나 열람 가능, 본인 칸만 직접 켜고 끔
+     (관리자는 아무 칸이나 눌러서 전체를 관리할 수 있음)
      ============================================================ */
   const SCHEDULE_HOURS = [9,10,11,12,13,14,15,16]; // 09:00~17:00, 1시간 단위
   let allProfilesCache = [];
 
-  async function initAdminSchedule(){
+  async function initSharedSchedule(){
     const { data } = await sb.from('profiles').select('id, display_name, email').order('display_name');
     allProfilesCache = data || [];
-    await renderScheduleGrid();
+    document.getElementById('adminGridHint').classList.toggle('hidden', currentUser.role !== 'admin');
+    await renderSharedScheduleGrid();
   }
 
-  async function renderScheduleGrid(){
+  async function renderSharedScheduleGrid(){
     const { data } = await sb.from('schedule_slots').select('*');
     const slots = data || [];
-    // key: `${weekday}-${hour}` -> [user_id, ...]
-    const map = {};
+    const map = {}; // `${weekday}-${hour}` -> [user_id, ...]
     slots.forEach(s=>{
       const k = `${s.weekday}-${s.hour}`;
       (map[k] = map[k] || []).push(s.user_id);
@@ -946,15 +945,35 @@
       return p ? (p.display_name || p.email) : id;
     };
 
-    const tbody = document.getElementById('scheduleGridBody');
+    const tbody = document.getElementById('myScheduleBody');
     tbody.innerHTML = SCHEDULE_HOURS.map(h=>{
       const cells = [1,2,3,4,5].map(wd=>{
         const ids = map[`${wd}-${h}`] || [];
-        const chips = ids.map(id=>`<span class="sg-chip">${nameOf(id)}</span>`).join('');
-        return `<td><div class="sg-cell" onclick="openSlotPicker(${wd},${h})">${chips || '<span class="sg-empty">+ 추가</span>'}</div></td>`;
+        const chips = ids.map(id=>`<span class="sg-chip${id===currentUser.id?' mine':''}">${nameOf(id)}</span>`).join('');
+        return `<td><div class="sg-cell" onclick="handleScheduleCellClick(${wd},${h})">${chips || '<span class="sg-empty">+ 추가</span>'}</div></td>`;
       }).join('');
       return `<tr><td class="sg-hour-label">${String(h).padStart(2,'0')}:00–${String(h+1).padStart(2,'0')}:00</td>${cells}</tr>`;
     }).join('');
+  }
+
+  async function handleScheduleCellClick(weekday, hour){
+    if(currentUser.role === 'admin'){
+      await openSlotPicker(weekday, hour);
+    } else {
+      await toggleOwnSlot(weekday, hour);
+    }
+  }
+
+  async function toggleOwnSlot(weekday, hour){
+    const { data } = await sb.from('schedule_slots').select('id').eq('user_id', currentUser.id).eq('weekday', weekday).eq('hour', hour);
+    if(data && data.length){
+      await sb.from('schedule_slots').delete().eq('user_id', currentUser.id).eq('weekday', weekday).eq('hour', hour);
+    } else {
+      const { error } = await sb.from('schedule_slots').insert({ user_id: currentUser.id, weekday, hour });
+      if(error){ alert('저장 실패: ' + error.message); return; }
+    }
+    await renderSharedScheduleGrid();
+    if(weekday === new Date().getDay()) await loadWorklogView(wlViewingUserId);
   }
 
   let slotPickerCtx = null; // { weekday, hour }
@@ -995,7 +1014,7 @@
     }
 
     closeModal('slotModal');
-    await renderScheduleGrid();
+    await renderSharedScheduleGrid();
     if(checked.includes(wlViewingUserId) || toRemove.includes(wlViewingUserId)){
       await loadWorklogView(wlViewingUserId);
     }
@@ -1015,37 +1034,6 @@
     return segs;
   }
   function pad2(n){ return String(n).padStart(2,'0'); }
-
-  /* ============================================================
-     내 주간 근무시간표 (본인이 직접 켜고 끔)
-     ============================================================ */
-  async function renderMyScheduleGrid(){
-    const { data } = await sb.from('schedule_slots').select('weekday, hour').eq('user_id', currentUser.id);
-    const mySet = new Set((data||[]).map(r=>`${r.weekday}-${r.hour}`));
-
-    const tbody = document.getElementById('myScheduleBody');
-    tbody.innerHTML = SCHEDULE_HOURS.map(h=>{
-      const cells = [1,2,3,4,5].map(wd=>{
-        const on = mySet.has(`${wd}-${h}`);
-        return `<td><div class="sg-toggle${on?' on':''}" onclick="toggleMySlot(${wd},${h}, this)">${on?'근무':''}</div></td>`;
-      }).join('');
-      return `<tr><td class="sg-hour-label">${pad2(h)}:00–${pad2(h+1)}:00</td>${cells}</tr>`;
-    }).join('');
-  }
-
-  async function toggleMySlot(weekday, hour, el){
-    const isOn = el.classList.contains('on');
-    if(isOn){
-      await sb.from('schedule_slots').delete().eq('user_id', currentUser.id).eq('weekday', weekday).eq('hour', hour);
-      el.classList.remove('on'); el.textContent = '';
-    } else {
-      const { error } = await sb.from('schedule_slots').insert({ user_id: currentUser.id, weekday, hour });
-      if(error){ alert('저장 실패: ' + error.message); return; }
-      el.classList.add('on'); el.textContent = '근무';
-    }
-    // 오늘 요일이 바뀐 칸이면 '오늘 근무 체크' 상태도 새로고침
-    if(weekday === new Date().getDay()) await loadWorklogView(wlViewingUserId);
-  }
 
   /* ============================================================
      근무 기록 (출퇴근 체크)
@@ -1087,8 +1075,6 @@
     document.getElementById('wlRemaining').textContent = Math.max(0, (profile.total_allocated_hours||0) - used).toFixed(1) + '시간';
 
     const isSelf = userId === currentUser.id;
-    document.getElementById('myScheduleWrap').classList.toggle('hidden', !isSelf);
-    if(isSelf) await renderMyScheduleGrid();
 
     const todayWeekday = new Date().getDay(); // 1=월 ... 5=금 (0,6은 시간표 없음)
 
