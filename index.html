@@ -282,12 +282,11 @@
       </div>
 
       <div class="panel">
-        <h3>출퇴근 체크</h3>
-        <div class="status-pill off" id="wlStatusPill"><span class="dot"></span><span id="wlStatusText">출근 전이에요</span></div>
+        <h3>오늘 근무 체크</h3>
+        <div class="status-pill off" id="wlStatusPill"><span class="dot"></span><span id="wlStatusText">시간표 불러오는 중...</span></div>
         <div class="form-row"><label>근로상세내역 (선택)</label><textarea class="field" id="wlDetailInput" placeholder="오늘 한 일을 간단히 적어주세요"></textarea></div>
         <div class="wl-actions">
-          <button class="btn btn-primary" id="clockInBtn">출근하기</button>
-          <button class="btn btn-danger hidden" id="clockOutBtn">퇴근하기</button>
+          <button class="btn btn-primary" id="checkTodayBtn">오늘 근무 체크</button>
           <button class="btn btn-utility" id="manualAddBtn">+ 직접 추가</button>
         </div>
       </div>
@@ -379,6 +378,27 @@
         <tbody id="usersTableBody"></tbody>
       </table>
       <div class="msub" style="margin-top:8px;">계정 삭제는 보안상 이 화면에서 지원하지 않아요. '비활성화'로 로그인을 막을 수 있어요.</div>
+    </div>
+
+    <div class="admin-section">
+      <h4>조교 주간 근무시간표</h4>
+      <div class="msub" style="margin-top:0;">여기서 설정한 요일별 시간이 '오늘 근무 체크' 버튼을 눌렀을 때 자동으로 기록돼요.</div>
+      <select id="wsUserSelect" class="wl-user-select" style="margin-top:8px;"></select>
+      <table class="admin-table">
+        <thead><tr><th>요일</th><th>시작</th><th>종료</th><th></th></tr></thead>
+        <tbody id="wsTableBody"></tbody>
+      </table>
+      <div class="add-row-form">
+        <select id="wsWeekday">
+          <option value="1">월</option><option value="2">화</option><option value="3">수</option>
+          <option value="4">목</option><option value="5">금</option>
+        </select>
+        <input id="wsStart" type="time">
+        <span style="align-self:center; color:var(--ink-faint);">~</span>
+        <input id="wsEnd" type="time">
+        <button class="btn btn-primary" id="wsAddBtn" style="padding:6px 14px;">구간 추가</button>
+      </div>
+      <div class="msub" style="margin-top:6px;">점심시간처럼 중간에 끊기는 요일은 구간을 두 번(예: 10:00~12:00, 13:00~15:00) 나눠서 추가하세요.</div>
     </div>
 
     <div class="modal-actions"><span style="flex:1;"></span><button class="btn btn-utility" onclick="closeModal('adminModal')">닫기</button></div>
@@ -781,6 +801,7 @@
   document.getElementById('adminBtn').addEventListener('click', async ()=>{
     await renderAdminFixed();
     await renderAdminUsers();
+    await initAdminSchedule();
     openModal('adminModal');
   });
 
@@ -858,10 +879,59 @@
   }
 
   /* ============================================================
+     관리자 — 조교 주간 근무시간표 관리
+     ============================================================ */
+  let wsSelectedUserId = null;
+
+  async function initAdminSchedule(){
+    const sel = document.getElementById('wsUserSelect');
+    const { data } = await sb.from('profiles').select('id, display_name, email').order('display_name');
+    sel.innerHTML = (data||[]).map(u=>`<option value="${u.id}">${u.display_name || u.email}</option>`).join('');
+    wsSelectedUserId = (data && data[0]) ? data[0].id : null;
+    sel.value = wsSelectedUserId;
+    sel.onchange = ()=>{ wsSelectedUserId = sel.value; renderAdminScheduleTable(); };
+    await renderAdminScheduleTable();
+  }
+
+  async function renderAdminScheduleTable(){
+    if(!wsSelectedUserId) return;
+    const { data } = await sb.from('weekly_schedules').select('*').eq('user_id', wsSelectedUserId).order('weekday').order('start_time');
+    const tbody = document.getElementById('wsTableBody');
+    tbody.innerHTML = (data||[]).map(s=>`
+      <tr>
+        <td>${DOW_KR[s.weekday]}</td>
+        <td>${s.start_time}</td>
+        <td>${s.end_time}</td>
+        <td><button class="mini-btn" onclick="deleteWeeklySchedule(${s.id})">삭제</button></td>
+      </tr>
+    `).join('') || `<tr><td colspan="4" style="color:var(--ink-faint);">등록된 시간표가 없어요.</td></tr>`;
+  }
+
+  document.getElementById('wsAddBtn').addEventListener('click', async ()=>{
+    const weekday = Number(document.getElementById('wsWeekday').value);
+    const start_time = document.getElementById('wsStart').value;
+    const end_time = document.getElementById('wsEnd').value;
+    if(!start_time || !end_time){ alert('시작·종료 시간을 입력해주세요.'); return; }
+    if(toMin(end_time) <= toMin(start_time)){ alert('종료 시간은 시작 시간보다 늦어야 해요.'); return; }
+    const { error } = await sb.from('weekly_schedules').insert({ user_id: wsSelectedUserId, weekday, start_time, end_time });
+    if(error){ alert('추가 실패: ' + error.message); return; }
+    document.getElementById('wsStart').value = '';
+    document.getElementById('wsEnd').value = '';
+    await renderAdminScheduleTable();
+    if(wsSelectedUserId === wlViewingUserId) await loadWorklogView(wlViewingUserId);
+  });
+
+  async function deleteWeeklySchedule(id){
+    if(!confirm('이 시간표 구간을 삭제할까요?')) return;
+    await sb.from('weekly_schedules').delete().eq('id', id);
+    await renderAdminScheduleTable();
+    if(wsSelectedUserId === wlViewingUserId) await loadWorklogView(wlViewingUserId);
+  }
+
+  /* ============================================================
      근무 기록 (출퇴근 체크)
      ============================================================ */
   let wlViewingUserId = null;   // 현재 화면에 보여주는 사람 (관리자는 다른 사람도 볼 수 있음)
-  let wlOpenEntry = null;       // 오늘 '출근'만 하고 '퇴근' 안 한 기록 (있으면)
   let editingWorklogId = null;
 
   const DOW_KR = ['일','월','화','수','목','금','토'];
@@ -897,31 +967,42 @@
     document.getElementById('wlUsed').textContent = used.toFixed(1) + '시간';
     document.getElementById('wlRemaining').textContent = Math.max(0, (profile.total_allocated_hours||0) - used).toFixed(1) + '시간';
 
-    // 오늘 출근했는데 퇴근 안 한 기록이 있는지 (본인 화면일 때만 출퇴근 버튼 의미 있음)
-    wlOpenEntry = allLogs.find(l=> l.work_date===todayStr() && l.clock_in && !l.clock_out) || null;
     const isSelf = userId === currentUser.id;
-    document.getElementById('clockInBtn').classList.toggle('hidden', !isSelf || !!wlOpenEntry);
-    document.getElementById('clockOutBtn').classList.toggle('hidden', !isSelf || !wlOpenEntry);
+    const todayWeekday = new Date().getDay(); // 1=월 ... 5=금 (0,6은 시간표 없음)
+
+    const { data: schedule } = await sb.from('weekly_schedules').select('*').eq('user_id', userId).eq('weekday', todayWeekday).order('start_time');
+    const todaySegments = schedule || [];
+    const todaySegmentsText = todaySegments.map(s=>`${s.start_time}~${s.end_time}`).join(', ');
+    const todayScheduledHours = todaySegments.reduce((sum,s)=> sum + Math.max(0,(toMin(s.end_time)-toMin(s.start_time))/60), 0);
+
+    const alreadyChecked = allLogs.find(l=> l.work_date===todayStr() && l.auto_generated);
+
     const pill = document.getElementById('wlStatusPill');
     const text = document.getElementById('wlStatusText');
+    const checkBtn = document.getElementById('checkTodayBtn');
+
     if(!isSelf){
       pill.className = 'status-pill off';
       text.textContent = `${profile.display_name || profile.email}님의 기록`;
-    } else if(wlOpenEntry){
+      checkBtn.classList.add('hidden');
+    } else if(todaySegments.length === 0){
+      pill.className = 'status-pill off';
+      text.textContent = '오늘(' + DOW_KR[todayWeekday] + ')은 예정된 근무가 없어요';
+      checkBtn.classList.add('hidden');
+    } else if(alreadyChecked){
       pill.className = 'status-pill on';
-      text.textContent = `근무중이에요 (${wlOpenEntry.clock_in}부터)`;
-      document.getElementById('wlDetailInput').value = wlOpenEntry.detail || '';
+      text.textContent = `오늘 체크 완료 · ${todaySegmentsText} (${todayScheduledHours.toFixed(1)}시간)`;
+      checkBtn.classList.add('hidden');
     } else {
       pill.className = 'status-pill off';
-      text.textContent = '출근 전이에요';
-      document.getElementById('wlDetailInput').value = '';
+      text.textContent = `오늘(${DOW_KR[todayWeekday]}) 예정: ${todaySegmentsText} (총 ${todayScheduledHours.toFixed(1)}시간)`;
+      checkBtn.classList.remove('hidden');
     }
 
     const tbody = document.getElementById('wlTableBody');
-    const canManage = (id)=> isSelf || currentUser.role === 'admin';
     tbody.innerHTML = allLogs.map(l=>{
       const d = new Date(l.work_date + 'T00:00:00');
-      const timeRange = (l.clock_in && l.clock_out) ? `${l.clock_in}~${l.clock_out}` : (l.clock_in ? `${l.clock_in}~(근무중)` : '-');
+      const timeRange = l.segments_text || (l.clock_in && l.clock_out ? `${l.clock_in}~${l.clock_out}` : (l.clock_in || '-'));
       return `
         <tr>
           <td>${l.work_date}</td>
@@ -937,27 +1018,24 @@
     }).join('') || `<tr><td colspan="6" style="color:var(--ink-faint);">아직 근무 기록이 없어요.</td></tr>`;
   }
 
-  document.getElementById('clockInBtn').addEventListener('click', async ()=>{
-    const now = new Date();
-    const time = toHHMM(now.getHours()*60 + now.getMinutes());
-    const detail = document.getElementById('wlDetailInput').value.trim();
-    const { error } = await sb.from('work_logs').insert({
-      user_id: currentUser.id, work_date: todayStr(), clock_in: time, detail: detail || null
-    });
-    if(error){ alert('출근 기록 실패: ' + error.message); return; }
-    await loadWorklogView(wlViewingUserId);
-  });
+  document.getElementById('checkTodayBtn').addEventListener('click', async ()=>{
+    const todayWeekday = new Date().getDay();
+    const { data: schedule } = await sb.from('weekly_schedules').select('*').eq('user_id', currentUser.id).eq('weekday', todayWeekday).order('start_time');
+    const segments = schedule || [];
+    if(segments.length === 0){ alert('오늘은 예정된 근무가 없어요.'); return; }
 
-  document.getElementById('clockOutBtn').addEventListener('click', async ()=>{
-    if(!wlOpenEntry) return;
-    const now = new Date();
-    const time = toHHMM(now.getHours()*60 + now.getMinutes());
-    const hours = Math.max(0, (toMin(time) - toMin(wlOpenEntry.clock_in)) / 60);
+    const segmentsText = segments.map(s=>`${s.start_time}~${s.end_time}`).join(', ');
+    const totalHours = segments.reduce((sum,s)=> sum + Math.max(0,(toMin(s.end_time)-toMin(s.start_time))/60), 0);
     const detail = document.getElementById('wlDetailInput').value.trim();
-    const { error } = await sb.from('work_logs').update({
-      clock_out: time, actual_hours: Math.round(hours*10)/10, detail: detail || wlOpenEntry.detail || null
-    }).eq('id', wlOpenEntry.id);
-    if(error){ alert('퇴근 기록 실패: ' + error.message); return; }
+
+    const { error } = await sb.from('work_logs').insert({
+      user_id: currentUser.id, work_date: todayStr(),
+      clock_in: segments[0].start_time, clock_out: segments[segments.length-1].end_time,
+      actual_hours: Math.round(totalHours*10)/10,
+      segments_text: segmentsText, auto_generated: true,
+      detail: detail || null
+    });
+    if(error){ alert('근무 체크 실패: ' + error.message); return; }
     await loadWorklogView(wlViewingUserId);
   });
 
