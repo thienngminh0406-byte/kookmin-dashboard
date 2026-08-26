@@ -7,6 +7,7 @@
 <link rel="stylesheet" as="style" crossorigin
   href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
   :root{
     --primary:#0075de; --primary-active:#005bab; --secondary:#213183; --on-primary:#fff;
@@ -425,7 +426,24 @@
 
     <div class="admin-section">
       <h4>조교 주간 근무시간표</h4>
-      <div class="msub" style="margin-top:0;">시간표는 여기가 아니라 <b>"근무 기록" 탭의 "전체 근무시간표"</b>에서 관리해요. 관리자는 그 화면에서 아무 칸이나 눌러 전체를 편집할 수 있어요.</div>
+      <div class="msub" style="margin-top:0;">칸 하나씩 직접 클릭해서 바꾸려면 <b>"근무 기록" 탭의 "전체 근무시간표"</b>에서 하시면 돼요.</div>
+    </div>
+
+    <div class="admin-section">
+      <h4>엑셀로 시간표 업로드</h4>
+      <div class="msub" style="margin-top:0;">기존에 쓰시던 엑셀/시트 파일을 그대로 올리면 이름을 자동으로 찾아서 매칭해드려요. 적용하기 전에 한 번 확인하는 화면이 나와요.</div>
+      <input type="file" id="scheduleFileInput" accept=".xlsx,.xls,.csv" style="margin-top:10px; font-size:13px;">
+      <div id="importParseMsg" class="msub" style="margin-top:8px;"></div>
+
+      <div id="scheduleImportPreview" class="hidden" style="margin-top:14px;">
+        <div class="msub" style="margin-top:0;">엑셀에서 찾은 이름을 실제 계정과 연결해주세요 (자동으로 짐작해서 골라뒀어요, 틀린 건 바꿔주세요).</div>
+        <table class="admin-table">
+          <thead><tr><th>엑셀에 적힌 이름</th><th>등장 횟수</th><th>연결할 계정</th></tr></thead>
+          <tbody id="nameMappingBody"></tbody>
+        </table>
+        <div class="msub" style="margin-top:8px; color:#c62828;">'적용'을 누르면 <b>기존 전체 시간표가 지워지고</b> 이 파일 내용으로 통째로 바뀌어요.</div>
+        <button class="btn btn-primary" id="applyImportBtn" style="margin-top:8px;">적용 (전체 교체)</button>
+      </div>
     </div>
 
     <div class="modal-actions"><span style="flex:1;"></span><button class="btn btn-utility" onclick="closeModal('adminModal')">닫기</button></div>
@@ -1034,6 +1052,140 @@
     return segs;
   }
   function pad2(n){ return String(n).padStart(2,'0'); }
+
+  /* ============================================================
+     엑셀로 시간표 업로드 (관리자 전용)
+     ============================================================ */
+  let parsedScheduleRows = []; // [{ weekday, hour, names:[...] }]
+  let importUniqueNames = [];  // [{ name, count }]
+
+  document.getElementById('scheduleFileInput').addEventListener('change', async (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const msgEl = document.getElementById('importParseMsg');
+    msgEl.textContent = '파일 읽는 중...';
+    document.getElementById('scheduleImportPreview').classList.add('hidden');
+
+    try{
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type:'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header:1, defval:'' });
+
+      // 1) "월 화 수 목 금"이 나란히 있는 헤더 행 찾기
+      let headerRowIdx = -1, dayColStart = -1;
+      for(let i=0;i<rows.length;i++){
+        const row = rows[i].map(c=>String(c).trim());
+        const idx = row.findIndex(c=>c==='월');
+        if(idx>-1 && row[idx+1]==='화' && row[idx+2]==='수' && row[idx+3]==='목' && row[idx+4]==='금'){
+          headerRowIdx = i; dayColStart = idx; break;
+        }
+      }
+      if(headerRowIdx === -1){
+        msgEl.textContent = '"월 화 수 목 금" 헤더 행을 못 찾았어요. 파일 형식을 확인해주세요.';
+        return;
+      }
+
+      // 2) 그 아래로 "09:00" 같은 시간이 적힌 행을 계속 읽음 (최대 12행)
+      parsedScheduleRows = [];
+      for(let i=headerRowIdx+1; i<Math.min(rows.length, headerRowIdx+13); i++){
+        const row = rows[i];
+        const timeLabel = String(row[dayColStart-1] ?? row[0] ?? '').trim();
+        const m = timeLabel.match(/(\d{1,2})\s*[:시]/);
+        if(!m) break; // 시간표 영역 끝
+        const hour = Number(m[1]);
+        for(let wd=1; wd<=5; wd++){
+          const cellText = String(row[dayColStart + wd - 1] ?? '').trim();
+          const names = cellText.split(/[\/,、\n]+/).map(s=>s.trim()).filter(Boolean);
+          if(names.length) parsedScheduleRows.push({ weekday: wd, hour, names });
+        }
+      }
+
+      if(parsedScheduleRows.length === 0){
+        msgEl.textContent = '시간표 내용을 찾지 못했어요. 헤더 아래 시간 행이 "09:00 - 10:00" 같은 형식인지 확인해주세요.';
+        return;
+      }
+
+      // 3) 이름별 등장 횟수 집계
+      const counts = {};
+      parsedScheduleRows.forEach(r=> r.names.forEach(n=> counts[n] = (counts[n]||0)+1));
+      importUniqueNames = Object.keys(counts).map(n=>({ name:n, count:counts[n] }))
+        .sort((a,b)=> b.count - a.count);
+
+      if(allProfilesCache.length === 0){
+        const { data } = await sb.from('profiles').select('id, display_name, email').order('display_name');
+        allProfilesCache = data || [];
+      }
+
+      renderNameMapping();
+      msgEl.textContent = `${parsedScheduleRows.length}개 칸, 이름 ${importUniqueNames.length}종류를 찾았어요. 아래에서 매칭을 확인해주세요.`;
+      document.getElementById('scheduleImportPreview').classList.remove('hidden');
+    } catch(err){
+      msgEl.textContent = '파일을 읽는 중 오류가 났어요: ' + err.message;
+    }
+  });
+
+  function guessProfileFor(name){
+    let p = allProfilesCache.find(u => (u.display_name||'').trim() === name);
+    if(p) return p.id;
+    p = allProfilesCache.find(u => u.display_name && (u.display_name.includes(name) || name.includes(u.display_name)));
+    return p ? p.id : '';
+  }
+
+  function renderNameMapping(){
+    const tbody = document.getElementById('nameMappingBody');
+    tbody.innerHTML = importUniqueNames.map((n, idx)=>{
+      const guess = guessProfileFor(n.name);
+      const options = allProfilesCache.map(u=>`<option value="${u.id}" ${u.id===guess?'selected':''}>${u.display_name||u.email}</option>`).join('');
+      return `
+        <tr>
+          <td>${n.name}</td>
+          <td>${n.count}</td>
+          <td>
+            <select class="mini-select" data-name="${n.name}" id="map-${idx}">
+              <option value="">— 매칭 안 함(건너뛰기) —</option>
+              ${options}
+            </select>
+          </td>
+        </tr>`;
+    }).join('');
+  }
+
+  document.getElementById('applyImportBtn').addEventListener('click', async ()=>{
+    const nameToUser = {};
+    importUniqueNames.forEach((n, idx)=>{
+      const val = document.getElementById(`map-${idx}`).value;
+      if(val) nameToUser[n.name] = val;
+    });
+
+    const finalSlots = [];
+    const seen = new Set();
+    parsedScheduleRows.forEach(r=>{
+      r.names.forEach(n=>{
+        const uid = nameToUser[n];
+        if(!uid) return;
+        const key = `${uid}-${r.weekday}-${r.hour}`;
+        if(seen.has(key)) return;
+        seen.add(key);
+        finalSlots.push({ user_id: uid, weekday: r.weekday, hour: r.hour });
+      });
+    });
+
+    if(finalSlots.length === 0){ alert('적용할 항목이 없어요. 이름 매칭을 확인해주세요.'); return; }
+    if(!confirm(`기존 전체 시간표를 지우고, 이 파일 내용(${finalSlots.length}건)으로 바꿀까요?`)) return;
+
+    const delRes = await sb.from('schedule_slots').delete().gt('id', 0);
+    if(delRes.error){ alert('기존 시간표 삭제 실패: ' + delRes.error.message); return; }
+
+    const { error } = await sb.from('schedule_slots').insert(finalSlots);
+    if(error){ alert('업로드 실패: ' + error.message); return; }
+
+    alert('시간표를 업로드했어요!');
+    document.getElementById('scheduleImportPreview').classList.add('hidden');
+    document.getElementById('importParseMsg').textContent = '';
+    document.getElementById('scheduleFileInput').value = '';
+    await renderSharedScheduleGrid();
+  });
 
   /* ============================================================
      근무 기록 (출퇴근 체크)
