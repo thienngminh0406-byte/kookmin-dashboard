@@ -191,6 +191,16 @@
   .checklist-item{ display:flex; align-items:center; gap:8px; font-size:13.5px; padding:4px 0; }
   .checklist-item input{ width:16px; height:16px; accent-color:var(--primary); }
 
+  /* my schedule toggle grid */
+  .sg-toggle{
+    min-height:36px; border:1px solid var(--hairline); border-radius:var(--r-sm);
+    cursor:pointer; display:flex; align-items:center; justify-content:center;
+    font-size:11px; font-weight:600; color:var(--ink-faint); background:#fff;
+    transition:background .12s, color .12s, border-color .12s;
+  }
+  .sg-toggle:hover{ border-color:var(--primary); }
+  .sg-toggle.on{ background:var(--primary); border-color:var(--primary); color:#fff; }
+
   @media (max-width:720px){
     .wrap{ padding:14px; }
     .user-box{ margin-left:0; width:100%; }
@@ -307,6 +317,17 @@
           <button class="btn btn-primary" id="checkTodayBtn">오늘 근무 체크</button>
           <button class="btn btn-utility" id="manualAddBtn">+ 직접 추가</button>
         </div>
+      </div>
+    </div>
+
+    <div class="panel hidden" id="myScheduleWrap">
+      <h3>내 주간 근무시간표</h3>
+      <div class="msub" style="margin-top:-8px; margin-bottom:12px;">근무 요일·시간이 바뀌면 여기서 칸을 눌러 직접 수정하세요. 켜진 칸이 내 근무시간이에요.</div>
+      <div class="room-table-wrap" style="overflow-x:auto;">
+        <table class="admin-table schedule-grid" id="myScheduleTable">
+          <thead><tr><th>시간</th><th>월</th><th>화</th><th>수</th><th>목</th><th>금</th></tr></thead>
+          <tbody id="myScheduleBody"></tbody>
+        </table>
       </div>
     </div>
 
@@ -996,6 +1017,37 @@
   function pad2(n){ return String(n).padStart(2,'0'); }
 
   /* ============================================================
+     내 주간 근무시간표 (본인이 직접 켜고 끔)
+     ============================================================ */
+  async function renderMyScheduleGrid(){
+    const { data } = await sb.from('schedule_slots').select('weekday, hour').eq('user_id', currentUser.id);
+    const mySet = new Set((data||[]).map(r=>`${r.weekday}-${r.hour}`));
+
+    const tbody = document.getElementById('myScheduleBody');
+    tbody.innerHTML = SCHEDULE_HOURS.map(h=>{
+      const cells = [1,2,3,4,5].map(wd=>{
+        const on = mySet.has(`${wd}-${h}`);
+        return `<td><div class="sg-toggle${on?' on':''}" onclick="toggleMySlot(${wd},${h}, this)">${on?'근무':''}</div></td>`;
+      }).join('');
+      return `<tr><td class="sg-hour-label">${pad2(h)}:00–${pad2(h+1)}:00</td>${cells}</tr>`;
+    }).join('');
+  }
+
+  async function toggleMySlot(weekday, hour, el){
+    const isOn = el.classList.contains('on');
+    if(isOn){
+      await sb.from('schedule_slots').delete().eq('user_id', currentUser.id).eq('weekday', weekday).eq('hour', hour);
+      el.classList.remove('on'); el.textContent = '';
+    } else {
+      const { error } = await sb.from('schedule_slots').insert({ user_id: currentUser.id, weekday, hour });
+      if(error){ alert('저장 실패: ' + error.message); return; }
+      el.classList.add('on'); el.textContent = '근무';
+    }
+    // 오늘 요일이 바뀐 칸이면 '오늘 근무 체크' 상태도 새로고침
+    if(weekday === new Date().getDay()) await loadWorklogView(wlViewingUserId);
+  }
+
+  /* ============================================================
      근무 기록 (출퇴근 체크)
      ============================================================ */
   let wlViewingUserId = null;   // 현재 화면에 보여주는 사람 (관리자는 다른 사람도 볼 수 있음)
@@ -1035,6 +1087,9 @@
     document.getElementById('wlRemaining').textContent = Math.max(0, (profile.total_allocated_hours||0) - used).toFixed(1) + '시간';
 
     const isSelf = userId === currentUser.id;
+    document.getElementById('myScheduleWrap').classList.toggle('hidden', !isSelf);
+    if(isSelf) await renderMyScheduleGrid();
+
     const todayWeekday = new Date().getDay(); // 1=월 ... 5=금 (0,6은 시간표 없음)
 
     const { data: slotRows } = await sb.from('schedule_slots').select('hour').eq('user_id', userId).eq('weekday', todayWeekday);
