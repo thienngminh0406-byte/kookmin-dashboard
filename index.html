@@ -218,11 +218,10 @@
     <div class="auth-error" id="authError"></div>
 
     <div class="form-row"><label>학번</label><input class="field" id="sidInput" placeholder="예: M2024717" autocomplete="off"></div>
-    <div class="form-row" id="nameFieldRow"><label>이름 (처음 등록할 때만 입력)</label><input class="field" id="sidNameInput" placeholder="예: 응웬민티엔"></div>
     <div class="form-row hidden" id="adminPwRow"><label>비밀번호</label><input class="field" id="adminPwInput" type="password" placeholder="관리자 비밀번호"></div>
     <button class="btn btn-primary block" id="enterBtn">입장하기</button>
 
-    <div class="auth-note">학번만 입력하면 들어가요. 처음이면 이름도 같이 적어서 계정을 만들어주세요.</div>
+    <div class="auth-note">시간표에 등록된 학번만 입장할 수 있어요.</div>
   </div>
 </div>
 
@@ -502,7 +501,6 @@
   document.getElementById('sidInput').addEventListener('input', ()=>{
     const isAdminId = document.getElementById('sidInput').value.trim().toLowerCase() === ADMIN_LOGIN_ID;
     document.getElementById('adminPwRow').classList.toggle('hidden', !isAdminId);
-    document.getElementById('nameFieldRow').classList.toggle('hidden', isAdminId);
   });
 
   document.getElementById('enterBtn').addEventListener('click', async ()=>{
@@ -537,16 +535,16 @@
       return;
     }
 
-    // 로그인 실패 = 처음 오는 학번일 가능성이 높음 → 이름이 있으면 새 계정 생성
-    const name = document.getElementById('sidNameInput').value.trim();
-    if(!name){
-      showAuthError('처음 등록하시는 학번 같아요. 이름도 함께 입력하고 다시 눌러주세요.');
+    // 로그인 실패 = 처음 오는 학번 → 시간표에 등록된 학번인지 확인 후에만 계정 생성
+    const { data: allowed } = await sb.from('allowed_students').select('*').eq('student_id', sidRaw.toUpperCase()).single();
+    if(!allowed){
+      showAuthError('등록되지 않은 학번이에요. 관리자에게 문의해주세요.');
       return;
     }
-    const { data, error: signUpErr } = await sb.auth.signUp({ email, password, options:{ data:{ display_name:name } } });
+    const { data, error: signUpErr } = await sb.auth.signUp({ email, password, options:{ data:{ display_name: allowed.display_name } } });
     if(signUpErr){ showAuthError('입장 실패: ' + signUpErr.message); return; }
     if(data.user){
-      await sb.from('profiles').update({ display_name:name, student_id: sidRaw.toUpperCase() }).eq('id', data.user.id);
+      await sb.from('profiles').update({ display_name: allowed.display_name, student_id: sidRaw.toUpperCase() }).eq('id', data.user.id);
     }
     await onLoggedIn();
   });
