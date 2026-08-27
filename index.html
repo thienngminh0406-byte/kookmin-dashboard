@@ -215,26 +215,13 @@
 <div id="authScreen">
   <div class="auth-card">
     <div class="auth-brand"><span class="mark">국</span>강의실 예약</div>
-    <div class="auth-tabs">
-      <button class="auth-tab active" id="tabLogin">로그인</button>
-      <button class="auth-tab" id="tabSignup">회원가입</button>
-    </div>
     <div class="auth-error" id="authError"></div>
 
-    <div id="loginForm">
-      <div class="form-row"><label>이메일</label><input class="field" id="loginEmail" type="email" placeholder="you@example.com"></div>
-      <div class="form-row"><label>비밀번호</label><input class="field" id="loginPassword" type="password" placeholder="비밀번호"></div>
-      <button class="btn btn-primary block" id="loginBtn">로그인</button>
-    </div>
+    <div class="form-row"><label>학번</label><input class="field" id="sidInput" placeholder="예: M2024717" autocomplete="off"></div>
+    <div class="form-row"><label>이름 (처음 등록할 때만 입력)</label><input class="field" id="sidNameInput" placeholder="예: 응웬민티엔"></div>
+    <button class="btn btn-primary block" id="enterBtn">입장하기</button>
 
-    <div id="signupForm" class="hidden">
-      <div class="form-row"><label>이름</label><input class="field" id="suName" placeholder="예: 응웬민티엔"></div>
-      <div class="form-row"><label>이메일</label><input class="field" id="suEmail" type="email" placeholder="you@example.com"></div>
-      <div class="form-row"><label>비밀번호</label><input class="field" id="suPassword" type="password" placeholder="6자 이상"></div>
-      <button class="btn btn-primary block" id="signupBtn">회원가입</button>
-    </div>
-
-    <div class="auth-note">회원가입은 누구나 가능하고, 새 계정은 기본 '일반 사용자' 권한으로 시작해요.</div>
+    <div class="auth-note">학번만 입력하면 들어가요. 처음이면 이름도 같이 적어서 계정을 만들어주세요.</div>
   </div>
 </div>
 
@@ -506,46 +493,31 @@
   }
   function clearAuthError(){ document.getElementById('authError').style.display = 'none'; }
 
-  document.getElementById('tabLogin').addEventListener('click', ()=>{
-    document.getElementById('tabLogin').classList.add('active');
-    document.getElementById('tabSignup').classList.remove('active');
-    document.getElementById('loginForm').classList.remove('hidden');
-    document.getElementById('signupForm').classList.add('hidden');
-    clearAuthError();
-  });
-  document.getElementById('tabSignup').addEventListener('click', ()=>{
-    document.getElementById('tabSignup').classList.add('active');
-    document.getElementById('tabLogin').classList.remove('active');
-    document.getElementById('signupForm').classList.remove('hidden');
-    document.getElementById('loginForm').classList.add('hidden');
-    clearAuthError();
-  });
+  // 학번으로만 들어가는 것처럼 보이게, 내부적으로는 학번에서 이메일/비밀번호를 만들어서 Supabase Auth를 그대로 씁니다.
+  function sidToEmail(sid){ return sid.trim().toLowerCase() + '@kmu-iei.local'; }
+  function sidToPassword(sid){ return 'kmu-' + sid.trim().toUpperCase() + '-2026'; }
 
-  document.getElementById('loginBtn').addEventListener('click', async ()=>{
+  document.getElementById('enterBtn').addEventListener('click', async ()=>{
     clearAuthError();
-    const email = document.getElementById('loginEmail').value.trim();
-    const password = document.getElementById('loginPassword').value;
-    if(!email || !password){ showAuthError('이메일과 비밀번호를 입력해주세요.'); return; }
-    const { error } = await sb.auth.signInWithPassword({ email, password });
-    if(error){ showAuthError('로그인 실패: ' + error.message); return; }
-    await onLoggedIn();
-  });
+    const sidRaw = document.getElementById('sidInput').value.trim();
+    const name = document.getElementById('sidNameInput').value.trim();
+    if(!sidRaw){ showAuthError('학번을 입력해주세요.'); return; }
 
-  document.getElementById('signupBtn').addEventListener('click', async ()=>{
-    clearAuthError();
-    const name = document.getElementById('suName').value.trim();
-    const email = document.getElementById('suEmail').value.trim();
-    const password = document.getElementById('suPassword').value;
-    if(!name || !email || !password){ showAuthError('모든 항목을 입력해주세요.'); return; }
-    if(password.length < 6){ showAuthError('비밀번호는 6자 이상이어야 해요.'); return; }
-    const { data, error } = await sb.auth.signUp({ email, password, options:{ data:{ display_name:name } } });
-    if(error){ showAuthError('회원가입 실패: ' + error.message); return; }
-    if(data.user && !data.session){
-      showAuthError('이메일로 인증 링크를 보냈어요. 확인 후 로그인해주세요.');
+    const email = sidToEmail(sidRaw);
+    const password = sidToPassword(sidRaw);
+
+    const { error: signInErr } = await sb.auth.signInWithPassword({ email, password });
+    if(!signInErr){ await onLoggedIn(); return; }
+
+    // 로그인 실패 = 처음 오는 학번일 가능성이 높음 → 이름이 있으면 새 계정 생성
+    if(!name){
+      showAuthError('처음 등록하시는 학번 같아요. 이름도 함께 입력하고 다시 눌러주세요.');
       return;
     }
+    const { data, error: signUpErr } = await sb.auth.signUp({ email, password, options:{ data:{ display_name:name } } });
+    if(signUpErr){ showAuthError('입장 실패: ' + signUpErr.message); return; }
     if(data.user){
-      await sb.from('profiles').update({ display_name:name }).eq('id', data.user.id);
+      await sb.from('profiles').update({ display_name:name, student_id: sidRaw.toUpperCase() }).eq('id', data.user.id);
     }
     await onLoggedIn();
   });
