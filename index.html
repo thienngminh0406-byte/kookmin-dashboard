@@ -218,7 +218,8 @@
     <div class="auth-error" id="authError"></div>
 
     <div class="form-row"><label>학번</label><input class="field" id="sidInput" placeholder="예: M2024717" autocomplete="off"></div>
-    <div class="form-row"><label>이름 (처음 등록할 때만 입력)</label><input class="field" id="sidNameInput" placeholder="예: 응웬민티엔"></div>
+    <div class="form-row" id="nameFieldRow"><label>이름 (처음 등록할 때만 입력)</label><input class="field" id="sidNameInput" placeholder="예: 응웬민티엔"></div>
+    <div class="form-row hidden" id="adminPwRow"><label>비밀번호</label><input class="field" id="adminPwInput" type="password" placeholder="관리자 비밀번호"></div>
     <button class="btn btn-primary block" id="enterBtn">입장하기</button>
 
     <div class="auth-note">학번만 입력하면 들어가요. 처음이면 이름도 같이 적어서 계정을 만들어주세요.</div>
@@ -496,20 +497,48 @@
   // 학번으로만 들어가는 것처럼 보이게, 내부적으로는 학번에서 이메일/비밀번호를 만들어서 Supabase Auth를 그대로 씁니다.
   function sidToEmail(sid){ return sid.trim().toLowerCase() + '@kmu-iei.local'; }
   function sidToPassword(sid){ return 'kmu-' + sid.trim().toUpperCase() + '-2026'; }
+  const ADMIN_LOGIN_ID = 'kmuklc';
+
+  document.getElementById('sidInput').addEventListener('input', ()=>{
+    const isAdminId = document.getElementById('sidInput').value.trim().toLowerCase() === ADMIN_LOGIN_ID;
+    document.getElementById('adminPwRow').classList.toggle('hidden', !isAdminId);
+    document.getElementById('nameFieldRow').classList.toggle('hidden', isAdminId);
+  });
 
   document.getElementById('enterBtn').addEventListener('click', async ()=>{
     clearAuthError();
     const sidRaw = document.getElementById('sidInput').value.trim();
-    const name = document.getElementById('sidNameInput').value.trim();
     if(!sidRaw){ showAuthError('학번을 입력해주세요.'); return; }
 
-    const email = sidToEmail(sidRaw);
-    const password = sidToPassword(sidRaw);
+    const isAdminId = sidRaw.toLowerCase() === ADMIN_LOGIN_ID;
+    let email, password;
+
+    if(isAdminId){
+      const pw = document.getElementById('adminPwInput').value.trim();
+      if(!pw){ showAuthError('비밀번호를 입력해주세요.'); return; }
+      email = ADMIN_LOGIN_ID + '@kmu-iei.local';
+      password = ADMIN_LOGIN_ID + '-' + pw; // Supabase 최소 비밀번호 길이(6자)를 맞추기 위한 내부 변환
+    } else {
+      email = sidToEmail(sidRaw);
+      password = sidToPassword(sidRaw);
+    }
 
     const { error: signInErr } = await sb.auth.signInWithPassword({ email, password });
     if(!signInErr){ await onLoggedIn(); return; }
 
+    if(isAdminId){
+      // 관리자 계정 최초 1회 생성 (이후엔 admin으로 role을 올려주는 SQL을 한 번 실행해야 해요)
+      const { data, error: signUpErr } = await sb.auth.signUp({ email, password, options:{ data:{ display_name:'관리자' } } });
+      if(signUpErr){ showAuthError('입장 실패: ' + signUpErr.message); return; }
+      if(data.user){
+        await sb.from('profiles').update({ display_name:'관리자' }).eq('id', data.user.id);
+      }
+      await onLoggedIn();
+      return;
+    }
+
     // 로그인 실패 = 처음 오는 학번일 가능성이 높음 → 이름이 있으면 새 계정 생성
+    const name = document.getElementById('sidNameInput').value.trim();
     if(!name){
       showAuthError('처음 등록하시는 학번 같아요. 이름도 함께 입력하고 다시 눌러주세요.');
       return;
@@ -521,6 +550,7 @@
     }
     await onLoggedIn();
   });
+
 
   document.getElementById('logoutBtn').addEventListener('click', async ()=>{
     await sb.auth.signOut();
