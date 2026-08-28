@@ -317,11 +317,15 @@
       </div>
 
       <div class="panel">
-        <h3>오늘 근무 체크</h3>
+        <h3>근무 체크</h3>
+        <div class="form-row" style="margin-bottom:10px;">
+          <label>체크할 날짜</label>
+          <input class="field" type="date" id="checkDateInput" style="max-width:180px;">
+        </div>
         <div class="status-pill off" id="wlStatusPill"><span class="dot"></span><span id="wlStatusText">시간표 불러오는 중...</span></div>
-        <div class="form-row"><label>근로상세내역 (선택)</label><textarea class="field" id="wlDetailInput" placeholder="오늘 한 일을 간단히 적어주세요"></textarea></div>
+        <div class="form-row"><label>근로상세내역 (선택)</label><textarea class="field" id="wlDetailInput" placeholder="그날 한 일을 간단히 적어주세요"></textarea></div>
         <div class="wl-actions">
-          <button class="btn btn-primary" id="checkTodayBtn">오늘 근무 체크</button>
+          <button class="btn btn-primary" id="checkTodayBtn">근무 체크</button>
           <button class="btn btn-utility" id="manualAddBtn">+ 직접 추가</button>
         </div>
       </div>
@@ -1252,6 +1256,59 @@
     }
   }
 
+  let currentAllLogs = []; // loadWorklogView가 마지막으로 불러온 근무기록 (체크 상태 계산에 재사용)
+
+  function selectedCheckDate(){
+    const v = document.getElementById('checkDateInput').value;
+    if(!v) return new Date();
+    const [y,m,d] = v.split('-').map(Number);
+    return new Date(y, m-1, d);
+  }
+
+  async function refreshCheckStatus(userId){
+    const isSelf = userId === currentUser.id;
+    const checkDate = selectedCheckDate();
+    const checkDateStr = fmtDate(checkDate);
+    const checkWeekday = checkDate.getDay(); // 1=월 ... 5=금 (0,6은 시간표 없음)
+
+    const { data: slotRows } = await sb.from('schedule_slots').select('hour').eq('user_id', userId).eq('weekday', checkWeekday);
+    const segments = mergeHoursToSegments((slotRows||[]).map(r=>r.hour));
+    const segmentsText = segments.map(s=>`${s.start_time}~${s.end_time}`).join(', ');
+    const scheduledHours = segments.reduce((sum,s)=> sum + Math.max(0,(toMin(s.end_time)-toMin(s.start_time))/60), 0);
+
+    const alreadyChecked = currentAllLogs.find(l=> l.work_date===checkDateStr && l.auto_generated);
+    const isFuture = checkDateStr > todayStr();
+    const dayLabel = checkDateStr === todayStr() ? '오늘' : `${checkDate.getMonth()+1}/${checkDate.getDate()}`;
+
+    const pill = document.getElementById('wlStatusPill');
+    const text = document.getElementById('wlStatusText');
+    const checkBtn = document.getElementById('checkTodayBtn');
+
+    if(!isSelf){
+      pill.className = 'status-pill off';
+      text.textContent = `다른 사람의 기록은 조회만 가능해요`;
+      checkBtn.classList.add('hidden');
+    } else if(isFuture){
+      pill.className = 'status-pill off';
+      text.textContent = '아직 지나지 않은 날짜예요';
+      checkBtn.classList.add('hidden');
+    } else if(segments.length === 0){
+      pill.className = 'status-pill off';
+      text.textContent = `${dayLabel}(${DOW_KR[checkWeekday]})은 예정된 근무가 없어요`;
+      checkBtn.classList.add('hidden');
+    } else if(alreadyChecked){
+      pill.className = 'status-pill on';
+      text.textContent = `${dayLabel} 체크 완료 · ${segmentsText} (${scheduledHours.toFixed(1)}시간)`;
+      checkBtn.classList.add('hidden');
+    } else {
+      pill.className = 'status-pill off';
+      text.textContent = `${dayLabel}(${DOW_KR[checkWeekday]}) 예정: ${segmentsText} (총 ${scheduledHours.toFixed(1)}시간)`;
+      checkBtn.classList.remove('hidden');
+    }
+  }
+
+  document.getElementById('checkDateInput').addEventListener('change', ()=> refreshCheckStatus(wlViewingUserId));
+
   async function loadWorklogView(userId){
     const { data: profile } = await sb.from('profiles').select('*').eq('id', userId).single();
     if(!profile) return;
@@ -1264,42 +1321,16 @@
 
     const { data: logs } = await sb.from('work_logs').select('*').eq('user_id', userId).order('work_date', { ascending:false });
     const allLogs = logs || [];
+    currentAllLogs = allLogs;
     const used = allLogs.reduce((sum,l)=> sum + (Number(l.actual_hours)||0), 0);
     document.getElementById('wlUsed').textContent = used.toFixed(1) + '시간';
     document.getElementById('wlRemaining').textContent = Math.max(0, (profile.total_allocated_hours||0) - used).toFixed(1) + '시간';
 
-    const isSelf = userId === currentUser.id;
-
-    const todayWeekday = new Date().getDay(); // 1=월 ... 5=금 (0,6은 시간표 없음)
-
-    const { data: slotRows } = await sb.from('schedule_slots').select('hour').eq('user_id', userId).eq('weekday', todayWeekday);
-    const todaySegments = mergeHoursToSegments((slotRows||[]).map(r=>r.hour));
-    const todaySegmentsText = todaySegments.map(s=>`${s.start_time}~${s.end_time}`).join(', ');
-    const todayScheduledHours = todaySegments.reduce((sum,s)=> sum + Math.max(0,(toMin(s.end_time)-toMin(s.start_time))/60), 0);
-
-    const alreadyChecked = allLogs.find(l=> l.work_date===todayStr() && l.auto_generated);
-
-    const pill = document.getElementById('wlStatusPill');
-    const text = document.getElementById('wlStatusText');
-    const checkBtn = document.getElementById('checkTodayBtn');
-
-    if(!isSelf){
-      pill.className = 'status-pill off';
-      text.textContent = `${profile.display_name || profile.email}님의 기록`;
-      checkBtn.classList.add('hidden');
-    } else if(todaySegments.length === 0){
-      pill.className = 'status-pill off';
-      text.textContent = '오늘(' + DOW_KR[todayWeekday] + ')은 예정된 근무가 없어요';
-      checkBtn.classList.add('hidden');
-    } else if(alreadyChecked){
-      pill.className = 'status-pill on';
-      text.textContent = `오늘 체크 완료 · ${todaySegmentsText} (${todayScheduledHours.toFixed(1)}시간)`;
-      checkBtn.classList.add('hidden');
-    } else {
-      pill.className = 'status-pill off';
-      text.textContent = `오늘(${DOW_KR[todayWeekday]}) 예정: ${todaySegmentsText} (총 ${todayScheduledHours.toFixed(1)}시간)`;
-      checkBtn.classList.remove('hidden');
+    if(!document.getElementById('checkDateInput').value){
+      document.getElementById('checkDateInput').value = todayStr();
     }
+    document.getElementById('checkDateInput').max = todayStr();
+    await refreshCheckStatus(userId);
 
     const tbody = document.getElementById('wlTableBody');
     tbody.innerHTML = allLogs.map(l=>{
@@ -1321,17 +1352,20 @@
   }
 
   document.getElementById('checkTodayBtn').addEventListener('click', async ()=>{
-    const todayWeekday = new Date().getDay();
-    const { data: slotRows } = await sb.from('schedule_slots').select('hour').eq('user_id', currentUser.id).eq('weekday', todayWeekday);
+    const checkDate = selectedCheckDate();
+    const checkDateStr = fmtDate(checkDate);
+    const checkWeekday = checkDate.getDay();
+
+    const { data: slotRows } = await sb.from('schedule_slots').select('hour').eq('user_id', currentUser.id).eq('weekday', checkWeekday);
     const segments = mergeHoursToSegments((slotRows||[]).map(r=>r.hour));
-    if(segments.length === 0){ alert('오늘은 예정된 근무가 없어요.'); return; }
+    if(segments.length === 0){ alert('그날은 예정된 근무가 없어요.'); return; }
 
     const segmentsText = segments.map(s=>`${s.start_time}~${s.end_time}`).join(', ');
     const totalHours = segments.reduce((sum,s)=> sum + Math.max(0,(toMin(s.end_time)-toMin(s.start_time))/60), 0);
     const detail = document.getElementById('wlDetailInput').value.trim();
 
     const { error } = await sb.from('work_logs').insert({
-      user_id: currentUser.id, work_date: todayStr(),
+      user_id: currentUser.id, work_date: checkDateStr,
       clock_in: segments[0].start_time, clock_out: segments[segments.length-1].end_time,
       actual_hours: Math.round(totalHours*10)/10,
       segments_text: segmentsText, auto_generated: true,
